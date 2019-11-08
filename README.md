@@ -153,7 +153,7 @@ $ docker attach f5cac9888499
 root@f5cac9888499:/#
 ```
 
-* Последовательность команд `Ctrl + p, Ctrl + q` позволяют выйти за пределы контейнера, не завершая его работу
+Последовательность команд `Ctrl + p, Ctrl + q` позволяют выйти за пределы контейнера, не завершая его работу
 
 ```
 # read escape sequence
@@ -167,7 +167,7 @@ f5cac9888499        ubuntu:16.04        "/bin/bash"         17 minutes ago      
 * docker run = docker create + docker start + docker attach
 * docker create используется, когда не нужно стартовать контейнер сразу
 
-* Docker run
+* **Docker run**
  * Через параметры передаются лимиты(cpu/mem/disk), ip, volumes
  * -i – запускает контейнер в foreground режиме (docker attach)
  * -d – запускает контейнер в background режиме
@@ -175,8 +175,7 @@ f5cac9888499        ubuntu:16.04        "/bin/bash"         17 minutes ago      
  * пример `docker run -it ubuntu:16.04 bash` запустит контейнер с териналом
  * пример `docker run -dt nginx:latest` запустит контейнер с работающим сервисом nginx
 
-* Docker exec запускает новый процесс внутри контейнера
-
+* **Docker exec** запускает новый процесс внутри контейнера
 ```
 $ docker exec -it f5cac9888499 bash
 root@f5cac9888499:/# ps axf
@@ -186,8 +185,8 @@ root@f5cac9888499:/# ps axf
      1 pts/0    Ss+    0:00 /bin/bash
 ```
 
-* Docker commit
- * Создает image из контейнера
+* **Docker commit**
+ ** Создает image из контейнера
  * Контейнер при этом остается запущенным
 
 ```
