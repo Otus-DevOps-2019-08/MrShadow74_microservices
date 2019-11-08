@@ -4,9 +4,10 @@ MrShadow74 microservices repository
 # Homework #12. Технологии контейнеризации. Введение в Docker.
 
 * В домашней работе будут изучены:
- * Создание docker host
- * Создание своего образа
- * Работа с Docker Hub
+ - Создание docker host
+ - Создание своего образа
+ - Работа с Docker Hub
+
 
 * Клонирован репозиторий MrShadow74_microservices
 * Создана директория docker-monolith
@@ -186,7 +187,7 @@ root@f5cac9888499:/# ps axf
 ```
 
 * **Docker commit**
- ** Создает image из контейнера
+ * Создает image из контейнера
  * Контейнер при этом остается запущенным
 
 ```
