@@ -257,12 +257,146 @@ Deleted: sha256:af0b15c8625bb1938f1d7b17081031f649fd14e6b233688eea3c5483994a66a3
 ## Docker-контейнеры. GCE
 
 * Создан новый проект в GCP с именем docker через команду gcloud init
-```
-$ gcloud config list
-[core]
-account = emelyanov.anton74@gmail.com
-disable_usage_reporting = True
-project = global-incline-258416
 
-Your active configuration is: [docker]
+### Docker machine
+Установка
 ```
+base=https://github.com/docker/machine/releases/download/v0.16.0 &&
+  curl -L $base/docker-machine-$(uname -s)-$(uname -m) >/tmp/docker-machine &&
+  sudo mv /tmp/docker-machine /usr/local/bin/docker-machine &&
+  chmod +x /usr/local/bin/docker-machine
+```
+Результат
+```
+$ docker-machine version
+docker-machine version 0.16.0, build 702c267f
+```
+* ***docker-machine*** - встроенный в докер инструмент для создания хостов и установки на
+них docker engine. Имеет поддержку облаков и систем виртуализации (Virtualbox, GCP и
+др.)
+* Команда создания - `docker-machine create <имя>`. Имен может быть много, переключение
+между ними через `eval $(docker-machine env <имя>)`. Переключение на локальный докер
+- `eval $(docker-machine env --unset)`. Удаление - `docker-machine rm <имя>`.
+```
+$ export GOOGLE_PROJECT=global-incline-258416
+
+$ docker-machine create --driver google \
+--google-machine-image https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/family/ubuntu-1604-lts \
+--google-machine-type n1-standard-1 \
+--google-zone europe-west1-b \
+docker-host
+
+Running pre-create checks...
+(docker-host) Check that the project exists
+(docker-host) Check if the instance already exists
+Creating machine...
+(docker-host) Generating SSH Key
+(docker-host) Creating host...
+(docker-host) Opening firewall ports
+(docker-host) Creating instance
+(docker-host) Waiting for Instance
+(docker-host) Uploading SSH Key
+Waiting for machine to be running, this may take a few minutes...
+Detecting operating system of created instance...
+Waiting for SSH to be available...
+Detecting the provisioner...
+Provisioning with ubuntu(systemd)...
+Installing Docker...
+Copying certs to the local machine directory...
+Copying certs to the remote machine...
+Setting Docker configuration on the remote daemon...
+Checking connection to Docker...
+Docker is up and running!
+To see how to connect your Docker Client to the Docker Engine running on this virtual machine, run: docker-machine env docker-host
+```
+* `docker-machine ls` выводит список виртуальных машин
+```
+$ docker-machine ls
+NAME          ACTIVE   DRIVER   STATE     URL                         SWARM   DOCKER     ERRORS
+docker-host   -        google   Running   tcp://104.155.45.195:2376           v19.03.4
+```
+
+### Повторение практики из демо на лекции
+
+>И сравните сами вывод:
+docker run --rm -ti tehbilly/htop
+docker run --rm --pid host -ti tehbilly/htop
+
+### Заполнение структуры репозитория
+
+* В каталоге docker-monolith созданы файлы:
+**db_config**
+```
+DATABASE_URL=127.0.0.1
+```
+**Dockerfile**
+```
+#Создаём образ на основе
+FROM ubuntu:16.04
+#Установим необходимые пакеты
+RUN apt-get update
+RUN apt-get install -y mongodb-server ruby-full ruby-dev build-essential git
+RUN gem install bundler
+RUN git clone -b monolith https://github.com/express42/reddit.git
+#Добавим файлы конфигурации
+COPY mongod.conf /etc/mongod.conf
+COPY db_config /reddit/db_config
+COPY start.sh /start.sh
+#Установка зависимостей и настройка прав доступа
+RUN cd /reddit && bundle install
+RUN chmod 0777 /start.sh
+#Старт сервиса
+CMD ["/start.sh"]
+```
+**mongod.conf**
+```
+# Where and how to store data.
+storage:
+  dbPath: /var/lib/mongodb
+  journal:
+    enabled: true
+
+# where to write logging data.
+systemLog:
+  destination: file
+  logAppend: true
+  path: /var/log/mongodb/mongod.log
+
+# network interfaces
+net:
+  port: 27017
+  bindIp: 127.0.0.1
+```
+**start.sh**
+```
+#!/bin/bash
+
+/usr/bin/mongod --fork --logpath /var/log/mongod.log --config /etc/mongodb.conf
+
+source /reddit/db_config
+
+cd /reddit && puma || exit
+```
+
+* Выполним команду `$ docker build -t reddit:latest .`. Точка в конце указывает на путь до файла Dockerfile
+
+* В результате выполнения получаю ошибку
+```
+Err:1 http://security.ubuntu.com/ubuntu xenial-security InRelease
+  Temporary failure resolving 'security.ubuntu.com'
+Err:2 http://archive.ubuntu.com/ubuntu xenial InRelease
+  Temporary failure resolving 'archive.ubuntu.com'
+Err:3 http://archive.ubuntu.com/ubuntu xenial-updates InRelease
+  Temporary failure resolving 'archive.ubuntu.com'
+Err:4 http://archive.ubuntu.com/ubuntu xenial-backports InRelease
+  Temporary failure resolving 'archive.ubuntu.com'
+```
+Исправляется добавлением в файл `/etc/docker/daemon.json` записи
+```
+{
+    "dns": ["8.8.8.8"]
+}
+```
+
+
+
