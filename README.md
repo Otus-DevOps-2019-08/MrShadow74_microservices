@@ -11,6 +11,17 @@ MrShadow74 microservices repository
 
 * Клонирован репозиторий MrShadow74_microservices
 * Создана директория docker-monolith
+* Подключен TravisCI
+```
+wget https://bit.ly/otus-travis-yaml-2019-05 -O .travis.yml y -P ~/GitHub/MrShadow74_microservices/
+mkdir .github && wget http://bit.ly/otus-pr-template -O PULL_REQUEST_TEMPLATE.md y -P ~/GitHub/MrShadow74_microservices/.github/
+mkdir play-travis && wget https://raw.githubusercontent.com/express42/otus-snippets/master/hw-04/test.py -P y -P ~/GitHub/MrShadow74_microservices/play-travis/
+```
+
+* Подключен вывод сообщений в канал Slack
+```
+travis encrypt "devops-team-otus:<TOKEN>" --add notifications.slack
+```
 
 ## Устанавливаем Docker
 
