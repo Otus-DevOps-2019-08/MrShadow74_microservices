@@ -325,13 +325,15 @@ To see how to connect your Docker Client to the Docker Engine running on this vi
 $ docker-machine ls
 NAME          ACTIVE   DRIVER   STATE     URL                         SWARM   DOCKER     ERRORS
 docker-host   -        google   Running   tcp://104.155.45.195:2376           v19.03.4
+
+eval $(docker-machine env docker-host)
 ```
 
 ### Повторение практики из демо на лекции
 
 >И сравните сами вывод:
-docker run --rm -ti tehbilly/htop
-docker run --rm --pid host -ti tehbilly/htop
+`docker run --rm -ti tehbilly/htop` покажет только одни процесс, запущенный htop.
+`docker run --rm --pid host -ti tehbilly/htop` покажет все процессы хоста, на котором запущен контейнер.
 
 ### Заполнение структуры репозитория
 
@@ -409,5 +411,131 @@ Err:4 http://archive.ubuntu.com/ubuntu xenial-backports InRelease
 }
 ```
 
+Ещё раз делаем билд, получаем результат
+```
+$ docker images -a
+REPOSITORY          TAG                 IMAGE ID            CREATED              SIZE
+reddit              latest              58571c7eea1f        26 seconds ago       692MB
+<none>              <none>              9c4fb52b89b4        27 seconds ago       692MB
+<none>              <none>              bd5c1c44328b        28 seconds ago       692MB
+<none>              <none>              6ff97462b650        42 seconds ago       647MB
+<none>              <none>              06d6eb7ea19b        42 seconds ago       647MB
+<none>              <none>              4c505d0794f8        42 seconds ago       647MB
+<none>              <none>              eb2c9bd038ff        42 seconds ago       647MB
+<none>              <none>              c892e367219d        44 seconds ago       647MB
+<none>              <none>              ae218c3a87db        57 seconds ago       644MB
+<none>              <none>              458feec4890b        About a minute ago   148MB
+ubuntu              16.04               5f2bf26e3524        9 days ago           123MB
+```
 
+Запускаем наш контейнер
+```
+$ docker run --name reddit -d --network=host reddit:latest
+d6efc9e7e7a182b1aba31cbdfafbfb4829e70114baf9e7cca74178f70e4d1d58
 
+$ docker-machine ls
+NAME          ACTIVE   DRIVER   STATE     URL                         SWARM   DOCKER     ERRORS
+docker-host   *        google   Running   tcp://35.195.187.251:2376           v19.03.4
+```
+
+* Попытка открыть адрес http://35.195.187.251:9292 заканчивается ошибкой. Для её исправления необходимо добавить правило для GCP firewall для порта 9292. После этого приложение становитя доступно.
+```
+$ gcloud compute firewall-rules create reddit-app \
+--allow tcp:9292 \
+--target-tags=docker-machine \
+--description="Allow PUMA connections" \
+--direction=INGRESS
+```
+
+## Docker hub:регистрация
+
+* Создана учётная запись на hub.docker.com
+
+* Пуш на докерхаб:
+```
+docker tag reddit:latest mrshadow74/otus-reddit:1.0
+docker push mrshadow74/otus-reddit:1.0
+```
+
+* Проверка запуска из dockerhub
+```
+docker run --name reddit -d -p 9292:9292 mrshadow74/otus-reddit:1.0
+```
+Запуск локально происходит при выполнении
+```
+docker run --name reddit -d -p 9292:9292 decapapreta/otus-reddit:1.0
+```
+
+### Проверка результата:
+
+docker logs reddit -f - смотрим логи контейнера
+
+docker exec -it reddit bash - запускаем bash в контейнере
+
+ps aux - вывод процессов
+
+killall5 1 - уничтожение процесса pid=1
+
+docker start reddit - старт контейнера из образа reddit
+
+docker stop reddit && docker rm reddit - остановка и удаление запущенного контейнера reddit.
+
+docker run --name reddit --rm -it dedocker tag reddit:latest decapapreta/otus-reddit:1.0
+```
+
+ps aux - увидим, что нет запущенного приложения
+
+exit - выход
+
+docker inspect mrshadow74/otus-reddit:1.0 - вывод инфорации о образе
+
+docker inspect mrshadow74/otus-reddit:1.0 -f '{{.ContainerConfig.Cmd}}' - видно основной процессй: [/bin/sh -c #(nop)  CMD ["/start.sh"]]
+
+docker run --name reddit -d -p 9292:9292 mrshadow74/otus-reddit:1.0 - запуск локально с биндом порта приложения на 9292
+
+docker exec -it reddit bash - запуск в консоли bahs
+
+mkdir /test1234 - создание каталога
+
+touch /test1234/testfile - создание файла
+
+rmdir /opt - удаление каталога /opt
+
+exit - выход
+
+docker diff reddit - вывод всех изменений, которые произошли в контейнере
+```
+C /root
+A /root/.bash_history
+C /var
+C /var/log
+A /var/log/mongod.log
+C /var/lib
+C /var/lib/mongodb
+A /var/lib/mongodb/_tmp
+A /var/lib/mongodb/journal
+A /var/lib/mongodb/journal/j._0
+A /var/lib/mongodb/journal/prealloc.1
+A /var/lib/mongodb/journal/prealloc.2
+A /var/lib/mongodb/local.0
+A /var/lib/mongodb/local.ns
+A /var/lib/mongodb/mongod.lock
+A /test1234
+A /test1234/testfile
+C /tmp
+A /tmp/mongodb-27017.sock
+D /opt
+```
+А-изменился, С-создан, D-удален.
+
+docker stop reddit && docker rm reddit - остановка и удаление контейнера
+
+docker run --name reddit --rm -it mrshadow74/otus-reddit:1.0 bash -запуск без приложения
+
+ls / - проверка отсутствия закомиченых изменений
+
+## Удаление docker-машины из GCP
+```
+docker-machine rm docker-host -f
+eval $(docker-machine env --unset)
+```
