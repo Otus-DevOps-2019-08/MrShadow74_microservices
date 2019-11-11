@@ -504,6 +504,7 @@ rmdir /opt - удаление каталога /opt
 exit - выход
 
 docker diff reddit - вывод всех изменений, которые произошли в контейнере
+
 ```
 C /root
 A /root/.bash_history
@@ -526,6 +527,7 @@ C /tmp
 A /tmp/mongodb-27017.sock
 D /opt
 ```
+
 А-изменился, С-создан, D-удален.
 
 docker stop reddit && docker rm reddit - остановка и удаление контейнера
@@ -534,7 +536,8 @@ docker run --name reddit --rm -it mrshadow74/otus-reddit:1.0 bash -запуск 
 
 ls / - проверка отсутствия закомиченых изменений
 
-## Удаление docker-машины из GCP
+### Удаление docker-машины из GCP
+
 ```
 docker-machine rm docker-host -f
 eval $(docker-machine env --unset)
