@@ -481,7 +481,6 @@ docker start reddit - старт контейнера из образа reddit
 docker stop reddit && docker rm reddit - остановка и удаление запущенного контейнера reddit.
 
 docker run --name reddit --rm -it dedocker tag reddit:latest decapapreta/otus-reddit:1.0
-```
 
 ps aux - увидим, что нет запущенного приложения
 
