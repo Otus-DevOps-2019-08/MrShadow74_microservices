@@ -463,7 +463,7 @@ docker run --name reddit -d -p 9292:9292 mrshadow74/otus-reddit:1.0
 ```
 Запуск локально происходит при выполнении
 ```
-docker run --name reddit -d -p 9292:9292 decapapreta/otus-reddit:1.0
+docker run --name reddit -d -p 9292:9292 mrshadow74/otus-reddit:1.0
 ```
 
 ### Проверка результата:
@@ -480,7 +480,7 @@ docker start reddit - старт контейнера из образа reddit
 
 docker stop reddit && docker rm reddit - остановка и удаление запущенного контейнера reddit.
 
-docker run --name reddit --rm -it dedocker tag reddit:latest decapapreta/otus-reddit:1.0
+docker run --name reddit --rm -it dedocker tag reddit:latest mrshadow74/otus-reddit:1.0
 
 ps aux - увидим, что нет запущенного приложения
 
