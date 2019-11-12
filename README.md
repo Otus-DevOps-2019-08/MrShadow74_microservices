@@ -542,7 +542,7 @@ docker-machine rm docker-host -f
 eval $(docker-machine env --unset)
 ```
 
-## Задание со *
+## Задание со * ![build status](https://travis-ci.com/Otus-DevOps-2019-08/MrShadow74_microservices.svg?branch=master)
 
 * Создана инфраструктура каталогов ansible, packer, terraform
 
