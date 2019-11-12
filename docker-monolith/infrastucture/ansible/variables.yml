@@ -1,0 +1,3 @@
+---
+- container_name: reddit
+- image_name: mrshadow74/otus-reddit:1.0

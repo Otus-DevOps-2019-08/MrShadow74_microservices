@@ -1,0 +1,35 @@
+---
+- name: Run container 
+  hosts: all
+  become: yes
+  become_method: sudo
+  tags: -deploy
+
+  vars_files:
+    - ../secrets.yml
+    - ../variables.yml
+
+  tasks:
+  - name: login to docker registry
+    docker_login:
+      username: "{{ docker_hub_username }}"
+      password: "{{ docker_hub_password }}"
+      email: "{{ docker_hub_email }}"
+  
+  - name: Container present
+    docker_container:
+      name: "{{ container_name }}"
+      state: present
+      image: "{{ image_name }}"
+      command: sleep infinit
+
+  - name: Started container
+    docker_container:
+      name: "{{ container_name }}"
+      image: "{{ image_name }}" 
+      state: started
+      exposed_ports:
+        - 9292
+      ports:
+        - "9292:9292"
+    tags: start-tag

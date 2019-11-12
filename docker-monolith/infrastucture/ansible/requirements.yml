@@ -1,0 +1,4 @@
+---
+# Remote repository requirements
+- src: https://github.com/MrShadow74/ansible-role-db.git
+  name: ansible-role.db

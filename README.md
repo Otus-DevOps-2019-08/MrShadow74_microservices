@@ -541,3 +541,13 @@ ls / - проверка отсутствия закомиченых измене
 docker-machine rm docker-host -f
 eval $(docker-machine env --unset)
 ```
+
+## Задание со *
+
+* Создана инфраструктура каталогов ansible, packer, terraform
+
+* Для хранения состояни terraform создан новый bucket
+
+* Для ansible настроен динамический инвентори
+
+* Создан сервисный аккаунт в GCP в проекте docker с именем ansible, роль Service Accaunt User. Файл с ключем выгружен и сохранён за пределами хранилища.

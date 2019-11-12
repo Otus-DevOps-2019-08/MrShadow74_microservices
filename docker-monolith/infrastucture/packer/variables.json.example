@@ -1,0 +1,10 @@
+{
+    "project_id": "docker-project",
+    "source_image_family": "ubuntu-1604-lts",
+    "machine_type": "g1-small",
+    "image_description": "base image",
+    "disk_type": "pd-standard",
+    "disk_size": "10",
+    "network_project_id": "docker-project-network",
+    "tags": "server"
+}

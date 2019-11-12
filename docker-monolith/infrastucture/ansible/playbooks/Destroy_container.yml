@@ -1,0 +1,15 @@
+---
+- name: CONTAINER RUNNING
+  hosts: all
+  become: yes
+  become_method: sudo
+
+  vars_files:
+    - ../variables.yml
+
+  tasks:
+  - name: DESTROY CONTAINER
+    docker_container:
+      name: "{{ container_name }}"
+      state: absent
+    tags: delete-tag

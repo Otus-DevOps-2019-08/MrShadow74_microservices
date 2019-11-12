@@ -1,0 +1,1 @@
+docker_host: "{{ hostvars['docker-host']['gce_private_ip'] }}"

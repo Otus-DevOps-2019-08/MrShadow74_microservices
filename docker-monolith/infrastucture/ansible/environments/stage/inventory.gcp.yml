@@ -1,0 +1,12 @@
+plugin: gcp_compute
+projects: 
+  - global-incline-258416
+regions:
+  - europe-west1
+hostnames:
+  - name
+filters:
+auth_kind: ansible
+service_account_file:  ~/.gce/global-incline-258416-dada30b7e7d8.json
+compose:
+  ansible_host: networkInterfaces[0].accessConfigs[0].natIP

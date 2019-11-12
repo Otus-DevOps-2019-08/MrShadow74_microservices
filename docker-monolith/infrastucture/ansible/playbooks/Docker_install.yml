@@ -1,0 +1,14 @@
+---
+## Configure Puma section
+- name: DOCKER INSTALLATION
+  hosts: all
+  become: true
+
+  vars:
+    pip_install_packages:
+      - name: docker
+
+  roles:
+    - geerlingguy.pip
+    - geerlingguy.docker
+    
