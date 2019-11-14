@@ -1,0 +1,26 @@
+{
+    "builders": [
+        {
+            "type": "googlecompute",
+            "project_id": "{{user `project_id`}}",
+            "image_name": "docker-host-base",
+            "image_family": "docker-base",
+            "source_image_family": "{{user `source_image_family`}}",
+            "zone": "europe-west1-b",
+            "ssh_username": "appuser",
+            "machine_type": "{{user `machine_type`}}",
+            "image_description": "{{user `image_description`}}",
+            "disk_type": "{{user `disk_type`}}",
+            "disk_size": "{{user `disk_size`}}",
+            "tags": "{{user `tags`}}"
+        }
+    ],
+    "provisioners": [
+        {
+        "type": "ansible",
+            "extra_arguments": ["--tags","-deploy"],
+            "ansible_env_vars": ["ANSIBLE_ROLES_PATH=../ansible/roles"],
+        "playbook_file": "../ansible/playbooks/Docker_install_all.yml" 
+        }
+    ]
+}

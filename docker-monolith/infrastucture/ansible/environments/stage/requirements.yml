@@ -1,0 +1,6 @@
+---
+#Requirements for docker in GCE
+- src: jgeerlingguy.docker
+  version: v2.5.1
+- src: geerlingguy.pip
+  version: v1.3
