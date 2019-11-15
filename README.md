@@ -731,14 +731,73 @@ mrshadow74/ui        1.0                 9bbc2355ee0d        2 hours ago        
 
 ### Уменьшение размеров образов
 
+* Соберем образ `docker build -t mrshadow74/ui:2.0 ./ui`
 ```
-&& rm -rf /var/lib/apt/lists/*
+FROM ubuntu:16.04
+RUN apt-get update \
+    && apt-get install -y ruby-full ruby-dev build-essential \
+    && gem install bundler --no-ri --no-rdoc \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV APP_HOME /app
+RUN mkdir $APP_HOME
+
+WORKDIR $APP_HOME
+ADD Gemfile* $APP_HOME/
+RUN bundle install
+ADD . $APP_HOME
+
+ENV POST_SERVICE_HOST post
+ENV POST_SERVICE_PORT 5000
+ENV COMMENT_SERVICE_HOST comment
+ENV COMMENT_SERVICE_PORT 9292
+
+CMD ["puma"]
+```
+* Соберем образ `docker build -t mrshadow74/ui:2.0 ./ui`
+
+* Соберем образ `docker build -t mrshadow74/ui:2.1 ./ui` на базе `https://raw.githubusercontent.com/docker-library/ruby/1dd5c255325fa0d5c3761f5238bbe1a9f50e9596/2.6/alpine3.10/Dockerfile`
+
+Образ до конца не заработал, для старта puma чего-то не хватает, разбираться уже лениво было. Но размер файла показательный.
+
+* Соберем новый образ `$ docker build -t mrshadow74/ui:2.2 ./ui`
+```
+FROM alpine:3.7
+RUN apk --update add --no-cache --virtual run-dependencies \
+    ruby ruby-dev ruby-json \
+    build-base \
+    bash \
+    && gem install bundler --no-ri --no-rdoc \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV APP_HOME /app
+RUN mkdir $APP_HOME
+
+WORKDIR $APP_HOME
+ADD Gemfile* $APP_HOME/
+RUN bundle install
+ADD . $APP_HOME
+
+ENV POST_SERVICE_HOST post
+ENV POST_SERVICE_PORT 5000
+ENV COMMENT_SERVICE_HOST comment
+ENV COMMENT_SERVICE_PORT 9292
+
+CMD ["puma"]
+```
+
+* Результат
+```
+$ docker images | grep ui
+mrshadow74/ui        2.0                 74236d2d3d57        23 minutes ago      433MB
+mrshadow74/ui        2.2                 b66a0d671ac7        About an hour ago   218MB
+mrshadow74/ui        2.1                 b22519e5f791        2 hours ago         51MB
 ```
 
 ### Ускорение сборки
 
 * Добавлю параметр `--no-cache=True` для команды build.
-
 
 ### Перезапуск приложения
 ```
@@ -802,3 +861,4 @@ $ docker run -d --network=reddit -p 9292:9292 mrshadow74/ui:2.0
 ```
 
 * Проверяем - база на месте, записи в базе сохранились.
+
