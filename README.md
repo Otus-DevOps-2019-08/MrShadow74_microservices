@@ -550,4 +550,315 @@ eval $(docker-machine env --unset)
 
 * Для ansible настроен динамический инвентори
 
-* Создан сервисный аккаунт в GCP в проекте docker с именем ansible, роль Service Accaunt User. Файл с ключем выгружен и сохранён за пределами хранилища.
+* Создан сервисный аккаунт в GCP в проекте docker с именем ansible, роль Service Account User. Файл с ключем выгружен и сохранён за пределами хранилища.
+
+# Homework 13.
+# Docker-образы. Микросервисы
+
+* Создана ветка docker-3
+
+## План
+ - Разбить наше приложение на несколько компонентов
+ - Запустить наше микросервисное приложение
+
+* Создаём машину
+```
+$ export GOOGLE_PROJECT=global-incline-258416
+
+$ docker-machine create --driver google \
+ --google-machine-image https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/family/ubuntu-1604-lts \
+ --google-machine-type n1-standard-1 \
+ --google-zone europe-west1-b \
+ docker-host
+
+$ docker-machine ls
+NAME          ACTIVE   DRIVER   STATE     URL                       SWARM   DOCKER     ERRORS
+docker-host   *        google   Running   tcp://34.77.12.119:2376           v19.03.4
+
+$ eval $(docker-machine env docker-host)
+
+$ docker run --name reddit -d -p 9292:9292 mrshadow74/otus-reddit:1.0
+```
+
+* Проверяем
+```
+$ docker ps -a -q
+59cf1d93faf7
+```
+
+* Скачиваем и распаковываем файл домашнего задания
+```
+$ wget https://github.com/express42/reddit/archive/microservices.zipzip \
+  && unzip microservices.zip && rm microservices.zip && mv reddit microservices src
+```
+
+* Создаем файлы сервисов
+```
+./post-py/Dockerfile
+./comment/Dockerfile
+./ui/Dockerfile
+```
+
+* В файле ./post-py/Dockerfile имеется неточность, корректируем содержание.
+```
+FROM python:3.6.0-alpine
+
+WORKDIR /app
+ADD . /app
+
+RUN apk add --no-cache --virtual .build-deps gcc musl-dev \
+    && pip install -r /app/requirements.txt \
+    && apk del --virtual .build-deps gcc musl-dev
+
+ENV POST_DATABASE_HOST post_db
+ENV POST_DATABASE posts
+
+CMD ["python3", "post_app.py"]
+```
+
+* После этого собираем сервисы
+```
+$ docker pull mongo:latest
+$ docker build -t mrshadow74/post:1.0 ./post-py
+$ docker build -t mrshadow74/comment:1.0 ./comment
+$ docker build -t mrshadow74/ui:1.0 ./ui
+```
+
+## Запуск приложения
+* Создаем сеть для приложений
+```
+$ docker network create reddit
+16c28ab9f1c4aa062f9dc33952b570f5011d1b851ae0805622b1fb9bf00addfd
+```
+
+* Запускаем контейнеры
+```
+$ docker run -d --network=reddit --network-alias=post_db --network-alias=comment_db mongo:latest
+Unable to find image 'mongo:latest' locally
+latest: Pulling from library/mongo
+7ddbc47eeb70: Pull complete
+c1bbdc448b72: Pull complete
+8c3b70e39044: Pull complete
+45d437916d57: Pull complete
+e119fb0e0a55: Pull complete
+91f0b9bae1ea: Pull complete
+53e7c2967f11: Pull complete
+69a945568374: Pull complete
+93333bc225a7: Pull complete
+b9c10bd6c9bd: Pull complete
+7f4e3538e99c: Pull complete
+1164b51d180a: Pull complete
+a715a7d71f27: Pull complete
+Digest: sha256:2704b1f2ad53c0c5fb029fc112f99b5e9acdca3ab869095a3f8c6d14b2e3c0f3
+Status: Downloaded newer image for mongo:latest
+cfd896f235b063856b427b795f741695b4ceb70f3529f1e9afe4e1cb17fb5b4f
+
+$ docker run -d --network=reddit --network-alias=post mrshadow74/post:1.0
+333f00038a9c500685e85af7e72d8ed5da6af3601a9eb12778a3f736a96f90ad
+
+$ docker run -d --network=reddit --network-alias=comment mrshadow74/comment:1.0
+b2814ecbf65a4d69316825cd034a8702d46c2d234d793c14f4d2bfb601b841a7
+
+$ docker run -d --network=reddit -p 9292:9292 mrshadow74/ui:1.0
+0d9809d3485d3b33c67315b9adc3e34be5e3b79cb599ec80c66be442c616cc6d
+```
+
+* *Что сделано:*
+ - Создали bridge-сеть для контейнеров, так как сетевые алиасы не работают в сети по умолчанию
+ - Запустили наши контейнеры в этой сети
+ - Добавили сетевые алиасы контейнерам
+
+## Задание со *
+
+* Остановим контейнеры
+```
+docker kill $(docker ps -q)
+```
+
+* Заменим переменные окружения и создадим заново
+```
+docker run -d --network=reddit --network-alias=post_db2 --network-alias=comment_db2 -v reddit_db:/data/db mongo:latest
+docker run -d --network=reddit --network-alias=post2 -e POST_DATABASE_HOST=post_db2 mrshadow74/post:1.0
+docker run -d --network=reddit --network-alias=comment2 -e COMMENT_DATABASE_HOST=comment_db2 mrshadow74/comment:1.0
+docker run -d --network=reddit -p 9292:9292 -e POST_SERVICE_HOST=post2 -e COMMENT_SERVICE_HOST=comment2 mrshadow74/ui:2.0
+```
+
+* Результат занимает неоправданно много дискового пространства
+```
+$ docker images
+REPOSITORY           TAG                 IMAGE ID            CREATED             SIZE
+mrshadow74/ui        1.0                 9bbc2355ee0d        About an hour ago   783MB
+mrshadow74/comment   1.0                 705aa79e5c6b        About an hour ago   781MB
+mrshadow74/post      1.0                 13df4d215d60        About an hour ago   109MB
+<none>               <none>              db3825ba9759        2 hours ago         88.6MB
+mongo                latest              965553e202a4        13 days ago         363MB
+ruby                 2.2                 6c8e6f9667b2        18 months ago       715MB
+python               3.6.0-alpine        cb178ebbf0f2        2 years ago         88.6MB
+```
+
+* Скорректируем содержимое файла `./ui/Dockerfile`
+```
+FROM ubuntu:16.04
+RUN apt-get update \
+&& apt-get install -y ruby-full ruby-dev build-essential \
+&& gem install bundler --no-ri --no-rdoc
+ENV APP_HOME /app
+RUN mkdir $APP_HOME
+WORKDIR $APP_HOME
+ADD Gemfile* $APP_HOME/
+RUN bundle install
+ADD . $APP_HOME
+ENV POST_SERVICE_HOST post
+ENV POST_SERVICE_PORT 5000
+ENV COMMENT_SERVICE_HOST comment
+ENV COMMENT_SERVICE_PORT 9292
+CMD ["puma"]
+```
+
+* И посмотрим, что изменилось. Разница ощутима.
+```
+$ docker build -t mrshadow74/ui:2.0 ./ui
+
+$ docker images
+REPOSITORY           TAG                 IMAGE ID            CREATED             SIZE
+mrshadow74/ui        2.0                 e9c8c8fd0d58        21 seconds ago      459MB
+mrshadow74/ui        1.0                 9bbc2355ee0d        2 hours ago         783MB
+```
+
+## Задание со *
+
+### Сборка образов на базе Alpine Linux
+
+### Уменьшение размеров образов
+
+* Соберем образ `docker build -t mrshadow74/ui:2.0 ./ui`
+```
+FROM ubuntu:16.04
+RUN apt-get update \
+    && apt-get install -y ruby-full ruby-dev build-essential \
+    && gem install bundler --no-ri --no-rdoc \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV APP_HOME /app
+RUN mkdir $APP_HOME
+
+WORKDIR $APP_HOME
+ADD Gemfile* $APP_HOME/
+RUN bundle install
+ADD . $APP_HOME
+
+ENV POST_SERVICE_HOST post
+ENV POST_SERVICE_PORT 5000
+ENV COMMENT_SERVICE_HOST comment
+ENV COMMENT_SERVICE_PORT 9292
+
+CMD ["puma"]
+```
+* Соберем образ `docker build -t mrshadow74/ui:2.0 ./ui`
+
+* Соберем образ `docker build -t mrshadow74/ui:2.1 ./ui` на базе `https://raw.githubusercontent.com/docker-library/ruby/1dd5c255325fa0d5c3761f5238bbe1a9f50e9596/2.6/alpine3.10/Dockerfile`
+
+Образ до конца не заработал, для старта puma чего-то не хватает, разбираться уже лениво было. Но размер файла показательный.
+
+* Соберем новый образ `$ docker build -t mrshadow74/ui:2.2 ./ui`
+```
+FROM alpine:3.7
+RUN apk --update add --no-cache --virtual run-dependencies \
+    ruby ruby-dev ruby-json \
+    build-base \
+    bash \
+    && gem install bundler --no-ri --no-rdoc \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV APP_HOME /app
+RUN mkdir $APP_HOME
+
+WORKDIR $APP_HOME
+ADD Gemfile* $APP_HOME/
+RUN bundle install
+ADD . $APP_HOME
+
+ENV POST_SERVICE_HOST post
+ENV POST_SERVICE_PORT 5000
+ENV COMMENT_SERVICE_HOST comment
+ENV COMMENT_SERVICE_PORT 9292
+
+CMD ["puma"]
+```
+
+* Результат
+```
+$ docker images | grep ui
+mrshadow74/ui        2.0                 74236d2d3d57        23 minutes ago      433MB
+mrshadow74/ui        2.2                 b66a0d671ac7        About an hour ago   218MB
+mrshadow74/ui        2.1                 b22519e5f791        2 hours ago         51MB
+```
+
+### Ускорение сборки
+
+* Добавлю параметр `--no-cache=True` для команды build.
+
+### Перезапуск приложения
+```
+$ docker kill $(docker ps -q)
+0d9809d3485d
+b2814ecbf65a
+333f00038a9c
+cfd896f235b0
+```
+
+* И создадим приложения заново
+```
+$ docker run -d --network=reddit --network-alias=post_db --network-alias=comment_db mongo:latest
+b3302f7f01dd067b333c1efcf6cedcf1595a8cb870180b9c967875c467b4f4b2
+$ docker run -d --network=reddit --network-alias=post mrshadow74/post:1.0
+a0135cdc04222de25a69516035e287f76f46414a75aaaaa3f7eb289659933975
+$ docker run -d --network=reddit --network-alias=comment mrshadow74/comment:1.0
+f314f5a4caa31cd0e0870a5a1b642360030850906016bdf007b1b964fd7c2ac3
+$ docker run -d --network=reddit -p 9292:9292 mrshadow74/ui:2.0
+7e7c5d9095c658beaaf4938f5d4c5863e043f2ba48b4a8ed067a70089165623b
+```
+
+* Проверка показывает, что мы потеряли содержимое базы mongo при перезапуске контейнеров.
+
+* Исправим это. Удалим контейнеры, создадим хранилище для базы и создадим заново
+
+```
+$ docker kill $(docker ps -q)
+7e7c5d9095c6
+f314f5a4caa3
+a0135cdc0422
+b3302f7f01dd
+
+$ docker volume create reddit_dbreddit_db
+
+$ docker run -d --network=reddit --network-alias=post_db --network-alias=comment_db -v reddit-db:/data/db mongo:latest
+30db89cbacc20af8b9bcaf7a5523c00897b99a693830aafe07b56a9342184ed4
+$ docker run -d --network=reddit --network-alias=post mrshadow74/post:1.0
+3dc1d2c62f4ed33553f98f32f25fdbc19c62f53ed417a624c8593b3a2adaa84b
+$ docker run -d --network=reddit --network-alias=comment mrshadow74/comment:1.0
+93f335d923bf907f5735e64b5d013f285179d84680a5497541719f0454bde3fd
+$ docker run -d --network=reddit -p 9292:9292 mrshadow74/ui:2.0
+2b3e5a9bd4de014867d9fd17edc03faf7025f25fdf0065bbead73a9395fdea45
+```
+
+* Проверили - всё работает. Уничтожим контейнеры и запустим их заново.
+```
+$ docker kill $(docker ps -q)   2b3e5a9bd4de
+93f335d923bf
+3dc1d2c62f4e
+30db89cbacc2
+
+$ docker run -d --network=reddit --network-alias=post_db --network-alias=comment_db -v reddit-db:/data/db mongo:latest
+5bfd36fad853f72f8170c826e47cd775a73f470131204faae0c80709984374f8
+$ docker run -d --network=reddit --network-alias=post mrshadow74/post:1.0
+54c0d59d03db0ab54db3f9e7e66f472c6e3b1542f6ddae9715b23ae60dd9842e
+$ docker run -d --network=reddit --network-alias=comment mrshadow74/comment:1.0
+cfed93569b5f90094d3e8649b8957e54fa10457d894bb02a6a07e2840313b421
+$ docker run -d --network=reddit -p 9292:9292 mrshadow74/ui:2.0
+287300676c7e374c9d706b52d3cd96c1abaa917f2b56225d7cd5e53b95dd1df7
+```
+
+* Проверяем - база на месте, записи в базе сохранились.
+
