@@ -1167,7 +1167,31 @@ src_post_db_1   docker-entrypoint.sh mongod   Up      27017/tcp
 src_ui_1        puma                          Up      0.0.0.0:9292->9292/tcp
 ```
 
-* Создан файл `docker-compose.env`
+* Созданы файлы `.env` и `.env.example`, файл `.env` добавлен в `.gitignore`
+* Скорректирован файл `src/docker-compose.yml`, значения заменены на переменные из файла `.env`
+* Базовое имя проекта по умолчанию берется из имени каталога, в котором находится проект. Его можно задать через конфигурационную опцию *container_name*. Единственное нужно учитывать, что имя контейнера уникально и два контейнера с одинаковым именем не смогут существовать одновременно.
 
+## Задание со *
 
+* Создан файл `docker-compose.override.yml`
+```
+version: '3.3'
+services:
+  post_db:
+    volumes:
+      - test_db:/data/db
+  ui:
+    volumes:
+      - ui:/home/dev/ui
+    command: ["puma","--debug","-w","2"]
+  comment:
+    volumes:
+      - comment:/home/dev/comment
+    command: ["puma","--debug","-w","2"]
+
+volumes:
+  test_db:
+  comment:
+  ui:
+```
 
