@@ -12,3 +12,4 @@ jdauphant.nginx
 .molecule
 .cache
 .pytest_cache
+docker-compose.env
