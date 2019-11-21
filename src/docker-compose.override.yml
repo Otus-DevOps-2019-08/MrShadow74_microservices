@@ -1,0 +1,19 @@
+version: '3.3'
+services:
+  post_db:
+    volumes:
+      - test_db:/data/db
+  ui:
+    volumes:
+      - ui:/home/dev/ui
+    command: ["puma","--debug","-w","2"]
+  comment:
+    volumes:
+      - comment:/home/dev/comment
+    command: ["puma","--debug","-w","2"]
+
+volumes:
+  test_db:
+  comment:
+  ui:
+

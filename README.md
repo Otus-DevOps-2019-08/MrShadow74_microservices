@@ -862,3 +862,336 @@ $ docker run -d --network=reddit -p 9292:9292 mrshadow74/ui:2.0
 
 * Проверяем - база на месте, записи в базе сохранились.
 
+# Homework 13. Docker: сети, docker-compose
+
+* План
+ - работа с сетями Docker
+ - использование docker-compose
+
+* Создана ветка docker-4
+* Создан хост docker-host
+```
+$ export GOOGLE_PROJECT=global-incline-258416
+
+$ docker-machine create --driver google \
+ --google-machine-image https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/family/ubuntu-1604-lts \
+ --google-machine-type n1-standard-1 \
+ --google-zone europe-west1-b \
+ docker-host
+
+$ docker-machine ls
+NAME          ACTIVE   DRIVER   STATE     URL                      SWARM   DOCKER     ERRORS
+docker-host   *        google   Running   tcp://34.77.25.81:2376           v19.03.5
+
+eval $(docker-machine env docker-host)
+```
+
+## Работа с сетью в Docker
+
+* План
+ - разобраться с работой сети в Docker
+   - none
+   - host
+   - bridge
+
+### None network driver
+* Выполним
+```
+$ docker run -ti --rm --network none joffotron/docker-net-tools -c ifconfig
+Unable to find image 'joffotron/docker-net-tools:latest' locally
+latest: Pulling from joffotron/docker-net-tools
+3690ec4760f9: Pull complete
+0905b79e95dc: Pull complete
+Digest: sha256:5752abdc4351a75e9daec681c1a6babfec03b317b273fc56f953592e6218d5b5
+Status: Downloaded newer image for joffotron/docker-net-tools:latest
+lo        Link encap:Local Loopback
+          inet addr:127.0.0.1  Mask:255.0.0.0
+          UP LOOPBACK RUNNING  MTU:65536  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+```
+* Запустим контейнер в сетевом пространстве docker-хоста
+```
+$ docker run -ti --rm --network host joffotron/docker-net-tools -c ifconfig
+docker0   Link encap:Ethernet  HWaddr 02:42:53:29:BB:B9
+          inet addr:172.17.0.1  Bcast:172.17.255.255  Mask:255.255.0.0
+          UP BROADCAST MULTICAST  MTU:1500  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+
+ens4      Link encap:Ethernet  HWaddr 42:01:0A:84:00:0B
+          inet addr:10.132.0.11  Bcast:10.132.0.11  Mask:255.255.255.255
+          inet6 addr: fe80::4001:aff:fe84:b%32618/64 Scope:Link
+          UP BROADCAST RUNNING MULTICAST  MTU:1460  Metric:1
+          RX packets:4800 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:3904 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000
+          RX bytes:108561315 (103.5 MiB)  TX bytes:393686 (384.4 KiB)
+
+lo        Link encap:Local Loopback
+          inet addr:127.0.0.1  Mask:255.0.0.0
+          inet6 addr: ::1%32618/128 Scope:Host
+          UP LOOPBACK RUNNING  MTU:65536  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+```
+
+* Сравним вывод команды с
+```
+$ docker-machine ssh docker-host ifconfig
+docker0   Link encap:Ethernet  HWaddr 02:42:53:29:bb:b9
+          inet addr:172.17.0.1  Bcast:172.17.255.255  Mask:255.255.0.0
+          UP BROADCAST MULTICAST  MTU:1500  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+
+ens4      Link encap:Ethernet  HWaddr 42:01:0a:84:00:0b
+          inet addr:10.132.0.11  Bcast:10.132.0.11  Mask:255.255.255.255
+          inet6 addr: fe80::4001:aff:fe84:b/64 Scope:Link
+          UP BROADCAST RUNNING MULTICAST  MTU:1460  Metric:1
+          RX packets:4845 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:3956 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000
+          RX bytes:108570552 (108.5 MB)  TX bytes:402689 (402.6 KB)
+
+lo        Link encap:Local Loopback
+          inet addr:127.0.0.1  Mask:255.0.0.0
+          inet6 addr: ::1/128 Scope:Host
+          UP LOOPBACK RUNNING  MTU:65536  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+```
+* Результаты вывода команд идентичны
+* Запустил несколько раз команду `docker run --network host -d nginx`.
+```
+$ docker run --network host -d nginx
+Unable to find image 'nginx:latest' locally
+latest: Pulling from library/nginx
+8d691f585fa8: Pull complete
+5b07f4e08ad0: Pull complete
+abc291867bca: Pull complete
+Digest: sha256:922c815aa4df050d4df476e92daed4231f466acc8ee90e0e774951b0fd7195a4
+Status: Downloaded newer image for nginx:latest
+944a610f787f6c5e1a7834ad205f9f88774cc312c997056d5be4d7e09cf2f875
+
+$ docker run --network host -d nginx
+0c7b7f3f9fefb88f53433b3c2f3807b78952a39f3344ffc77ca44cf9ff9b8d7b
+
+$ docker run --network host -d nginx
+a44bb85703ebb3e2d45739c4ec6c0a2e678e24939d537997cf411c0a65c01295
+```
+* Результат - загружен образ контейнера nginx, собран и запущен контейнер с ним.
+* Последующие запуски команды создают контейнеры nginx, но останавливают их при запуске следующего.
+* Ответ на вопрос "почему"
+```
+$ docker logs 944a610f787f
+2019/11/18 15:53:01 [emerg] 1#1: bind() to 0.0.0.0:80 failed (98: Address already in use)
+nginx: [emerg] bind() to 0.0.0.0:80 failed (98: Address already in use)
+```
+
+* Остановим все запущенные контейнеры:
+```
+$ docker kill $(docker ps -q)
+```
+
+* На docker-host машине выполните команду:
+```
+$ docker-machine ssh docker-host
+Welcome to Ubuntu 16.04.6 LTS (GNU/Linux 4.15.0-1049-gcp x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+
+0 packages can be updated.
+0 updates are security updates.
+
+New release '18.04.3 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+docker-user@docker-host:~$ sudo ln -s /var/run/docker/netns /var/run/netns
+docker-user@docker-host:~$ sudo ip netns
+default
+```
+
+* То же самое, но с использование none и host
+```
+$ docker run --network host -d nginx && docker run --network none -d nginx && docker run --network host -d nginx && docker run --network none -d nginx
+9c10e284e43825cf53cb7693e8da0e173361ddeac2a62524cbb05bbb4ecf86b0
+75d0d1f8129870b2d37a05b36c8368d83f0d388827201f5680497345a6520cab
+5f1f5aaa6a9f42eac62b277b160a590fa4abd1c4076a260686457ad0c3b14376
+270e05010782879a98193a8b391faf82b6dffa9ea6d55f60a5cd102d5a6ec6c5
+
+$ docker-machine ssh docker-host sudo ip netns
+6fbb83f0ccfe
+fb5c9cb5cad7
+default
+```
+## Bridge network driver
+* Создадим bridge-сеть в docker
+```
+docker network create reddit --driver bridge
+```
+
+* Запустим наш проект reddit с использованием bridge-сети
+```
+$ docker run -d --network=reddit --network-alias=post mrshadow74/post:1.0
+deb693ceff8af30c3833fa1ca87e2c284b7919a66dbc4e88bce4bd47cfd6b95b
+$ docker run -d --network=reddit --network-alias=comment mrshadow74/comme
+$ docker run -d --network=reddit --network-alias=comment mrshadow74/comment:1.0
+ab1db118445dab98e17df09ae16f54a2986a0879e0400c5bd6e36ab219000389
+$ docker run -d --network=reddit -p 9292:9292 mrshadow74/ui:1.0
+c7c762d66e4fc2d74f3d18b1c7f4910b41d44db6c7e9b9b7050e6abc54e563cb
+```
+* Проверяем - всё работает
+
+* Остановим старые копии контейнеров
+```
+$ docker kill $(docker ps -q)
+```
+* Создадим docker-сети
+```
+$ docker network create back_net --subnet=10.0.2.0/24
+$ docker network create front_net --subnet=10.0.1.0/24
+```
+* Запустим контейнеры
+```
+$ docker run -d --network=front_net -p 9292:9292 --name ui mrshadow74/ui:1.0
+$ docker run -d --network=back_net --name comment mrshadow74/comment:1.0
+$ docker run -d --network=back_net --name post mrshadow74/post:1.0
+$ docker run -d --network=back_net --name mongo_db --network-alias=post_db --network-alias=comment_db mongo:latest
+```
+* Docker при инициализации контейнера может подключить к нему только 1 сеть. При этом контейнеры из соседних сетей не будут доступны как в DNS, так и для взаимодействия по сети. Поэтому нужно поместить контейнеры post и comment в обе сети.
+```
+$ docker network connect front_net post && docker network connect front_net comment
+```
+* Заходим, проверяем, созадём пару новых постов - всё работает
+* Посмотрим, как выглядит сетевой стек на текущий момент
+```
+$ docker-machine ssh docker-host
+$ sudo apt-get update && sudo apt-get install bridge-utils
+$ sudo docker network ls
+NETWORK ID          NAME                DRIVER              SCOPE
+7ef8daa1f0b5        back_net            bridge              local
+997ed1053ce3        bridge              bridge              local
+1a3827bcf1ec        front_net           bridge              local
+49d1b820110c        host                host                local
+d4bb674d94c8        none                null                local
+
+$ ifconfig | grep br
+br-1a3827bcf1ec Link encap:Ethernet  HWaddr 02:42:3a:f1:fb:e3
+br-7ef8daa1f0b5 Link encap:Ethernet  HWaddr 02:42:10:ab:9a:25
+```
+
+* Посмотрим, как выглядит iptables
+```
+~$ sudo iptables -nL -t nat
+Chain PREROUTING (policy ACCEPT)
+target     prot opt source               destination
+DOCKER     all  --  0.0.0.0/0            0.0.0.0/0            ADDRTYPE match dst-type LOCAL
+
+Chain INPUT (policy ACCEPT)
+target     prot opt source               destination
+
+Chain OUTPUT (policy ACCEPT)
+target     prot opt source               destination
+DOCKER     all  --  0.0.0.0/0           !127.0.0.0/8          ADDRTYPE match dst-type LOCAL
+
+Chain POSTROUTING (policy ACCEPT)
+target     prot opt source               destination
+MASQUERADE  all  --  10.0.1.0/24          0.0.0.0/0
+MASQUERADE  all  --  10.0.2.0/24          0.0.0.0/0
+MASQUERADE  all  --  172.17.0.0/16        0.0.0.0/0
+MASQUERADE  tcp  --  10.0.1.2             10.0.1.2             tcp dpt:9292
+
+Chain DOCKER (2 references)
+target     prot opt source               destination
+RETURN     all  --  0.0.0.0/0            0.0.0.0/0
+RETURN     all  --  0.0.0.0/0            0.0.0.0/0
+RETURN     all  --  0.0.0.0/0            0.0.0.0/0
+DNAT       tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:9292 to:10.0.1.2:9292
+```
+* Посмотрим процессы docker-proxy
+```
+$ ps ax |grep docker-proxy
+12868 ?        Sl     0:00 /usr/bin/docker-proxy -proto tcp -host-ip 0.0.0.0 -host-port 9292 -container-ip 10.0.1.2 -container-port 9292
+24234 pts/0    S+     0:00 grep --color=auto docker-proxy
+```
+
+## Docker-compose
+
+* Проблемы docker:
+ • Одно приложение состоит из множества контейнеров/сервисов
+ • Один контейнер зависит от другого
+ • Порядок запуска имеет значение
+ • docker build/run/create … (долго и много)
+
+* *docker-compose*
+ • Это отдельная утилита
+ • Декларативное описание docker-инфраструктуры в YAML-формате
+ • Управление многоконтейнерными приложениями
+
+### Установка dockercompose
+```
+pip install docker-compose
+```
+* Создан файл `src/docker-compose.yml`
+
+### Переменные окружения в docker-compose
+* Остановим контейнеры `docker kill $(docker ps -q)`
+* Выполним
+```
+$ export USERNAME=mrshadow74
+$ docker-compose up -d
+$ docker-compose ps
+```
+* Посмотрим, что же получилось
+```
+$ docker-compose ps
+    Name                  Command             State           Ports
+----------------------------------------------------------------------------
+src_comment_1   puma                          Up
+src_post_1      python3 post_app.py           Up
+src_post_db_1   docker-entrypoint.sh mongod   Up      27017/tcp
+src_ui_1        puma                          Up      0.0.0.0:9292->9292/tcp
+```
+
+* Созданы файлы `.env` и `.env.example`, файл `.env` добавлен в `.gitignore`
+* Скорректирован файл `src/docker-compose.yml`, значения заменены на переменные из файла `.env`
+* Базовое имя проекта по умолчанию берется из имени каталога, в котором находится проект. Его можно задать через конфигурационную опцию *container_name*. Единственное нужно учитывать, что имя контейнера уникально и два контейнера с одинаковым именем не смогут существовать одновременно.
+
+## Задание со *
+
+* Создан файл `docker-compose.override.yml`
+```
+version: '3.3'
+services:
+  post_db:
+    volumes:
+      - test_db:/data/db
+  ui:
+    volumes:
+      - ui:/home/dev/ui
+    command: ["puma","--debug","-w","2"]
+  comment:
+    volumes:
+      - comment:/home/dev/comment
+    command: ["puma","--debug","-w","2"]
+
+volumes:
+  test_db:
+  comment:
+  ui:
+```
+
