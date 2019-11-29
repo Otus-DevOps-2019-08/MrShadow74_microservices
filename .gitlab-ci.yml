@@ -8,6 +8,12 @@ build_job:
   script:
     - echo 'Building'
 
+variables:
+  DATABASE_URL: 'mongodb://mongo/user_posts'
+  before_script:
+    - cd reddit                    
+    - bundle install
+
 test_unit_job:
   stage: test
   script:
