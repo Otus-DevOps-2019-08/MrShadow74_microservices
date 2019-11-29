@@ -10,14 +10,21 @@ stages:
 variables:
   DATABASE_URL: 'mongodb://mongo/user_posts'
 
-build_job:
-  stage: build
-  script:
-    - echo 'Building'
-
 before_script:
     - cd reddit                    
     - bundle install
+
+build_job:
+  image: docker:19.03.1
+  stage: build
+  services:
+    - docker:dind
+  before_script:
+    - cd reddit
+  script:
+    - docker build -t mrshadow74/reddit:$CI_COMMIT_VERSION .
+    - docker login -u $DH_LOGIN -p $DH_PASSWORD
+    - docker push mrshadow74/reddit:$CI_COMMIT_VERSION
 
 test_unit_job:
   stage: test

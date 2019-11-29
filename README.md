@@ -1386,5 +1386,20 @@ branch review:
     - master
 ``
 
+## Задание со *
 
+* В шаг build добавил сборку контейнера с приложением reddit
+
+
+```
+$ cat gitlab-runner.sh
+docker run -d --name gitlab-runner --restart always \  
+  -v /srv/gitlab-runner/config:/etc/gitlab-runner \  
+  -v /var/run/docker.sock:/var/run/docker.sock \  
+  gitlab/gitlab-runner:latest
+docker exec -it gitlab-runner gitlab-runner register --run-untagged --locked=false
+```
+
+* Добавлена интаграция со Slack
+https://app.slack.com/client/T6HR0TUP3/CN5R4PTGR
 
