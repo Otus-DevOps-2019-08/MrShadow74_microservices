@@ -22,9 +22,9 @@ build_job:
   before_script:
     - cd reddit
   script:
-    - docker build -t example/reddit:$CI_COMMIT_VERSION .
+    - docker build -t mrshadow74/otus-reddit:$CI_COMMIT_VERSION .
     - docker login -u $DH_LOGIN -p $DH_PASSWORD
-    - docker push example/reddit:$CI_COMMIT_VERSION
+    - docker push mrshadow74/otus-reddit:$CI_COMMIT_VERSION
 
 test_unit_job:
   stage: test
