@@ -15,17 +15,10 @@ before_script:
     - bundle install
 
 build_job:
-  image: docker:19.03.1
   stage: build
-  services:
-    - docker:dind
-  before_script:
-    - cd reddit
   script:
-    - docker build -t mrshadow74/otus-reddit:$CI_COMMIT_VERSION .
-    - docker login -u $DH_LOGIN -p $DH_PASSWORD
-    - docker push mrshadow74/otus-reddit:$CI_COMMIT_VERSION
-
+    - echo 'Building'
+  
 test_unit_job:
   stage: test
   services:

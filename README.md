@@ -1388,9 +1388,6 @@ branch review:
 
 ## Задание со *
 
-* В шаг build добавил сборку контейнера с приложением reddit
-
-
 ```
 $ cat gitlab-runner.sh
 docker run -d --name gitlab-runner --restart always \  
