@@ -862,7 +862,7 @@ $ docker run -d --network=reddit -p 9292:9292 mrshadow74/ui:2.0
 
 * Проверяем - база на месте, записи в базе сохранились.
 
-# Homework 13. Docker: сети, docker-compose
+# Homework 14. Docker: сети, docker-compose
 
 * План
  - работа с сетями Docker
@@ -1048,7 +1048,6 @@ docker network create reddit --driver bridge
 ```
 $ docker run -d --network=reddit --network-alias=post mrshadow74/post:1.0
 deb693ceff8af30c3833fa1ca87e2c284b7919a66dbc4e88bce4bd47cfd6b95b
-$ docker run -d --network=reddit --network-alias=comment mrshadow74/comme
 $ docker run -d --network=reddit --network-alias=comment mrshadow74/comment:1.0
 ab1db118445dab98e17df09ae16f54a2986a0879e0400c5bd6e36ab219000389
 $ docker run -d --network=reddit -p 9292:9292 mrshadow74/ui:1.0
@@ -1096,7 +1095,7 @@ br-7ef8daa1f0b5 Link encap:Ethernet  HWaddr 02:42:10:ab:9a:25
 
 * Посмотрим, как выглядит iptables
 ```
-~$ sudo iptables -nL -t nat
+$ sudo iptables -nL -t nat
 Chain PREROUTING (policy ACCEPT)
 target     prot opt source               destination
 DOCKER     all  --  0.0.0.0/0            0.0.0.0/0            ADDRTYPE match dst-type LOCAL
