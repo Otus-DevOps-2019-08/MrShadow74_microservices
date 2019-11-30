@@ -1400,3 +1400,73 @@ docker exec -it gitlab-runner gitlab-runner register --run-untagged --locked=fal
 * Добавлена интаграция со Slack
 https://app.slack.com/client/T6HR0TUP3/CN5R4PTGR
 
+# Homework 16. Введение в мониторинг. Системы мониторинга.
+* Создана ветка monitoring-1
+
+## План
+* Prometheus: запуск, конфигурация, знакомство с Web UI
+* Мониторинг состояния микросервисов
+* Сбор метрик хоста с использованием экспортера
+* Задания со *
+
+## Подготовка окружения
+* Создадим правило фаервола для Prometheus и Puma
+```
+$ gcloud compute firewall-rules create prometheus-default --allow tcp:9090
+$ gcloud compute firewall-rules create puma-default --allow tcp:9292
+```
+* Создадим docker-хост в GCE
+```
+$ export GOOGLE_PROJECT=global-incline-258416
+
+$ docker-machine create --driver google \
+ --google-machine-image https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/family/ubuntu-1604-lts \
+ --google-machine-type n1-standard-1 \
+ --google-zone europe-west1-b \
+ docker-host2
+
+$ eval $(docker-machine env docker-host2)
+```
+
+## Запуск Prometheus
+* На основе готового docker-образа prometheus запустим систему мониторинга
+```
+$ docker run --rm -p 9090:9090 -d --name prometheus prom/prometheus:v2.1.0
+Status: Downloaded newer image for prom/prometheus:v2.1.0
+7c5d60cab0b09c669bbde525d5e9852dd415745d3ad4edac7223fff7a2a37ae6
+
+$ docker ps
+CONTAINER ID        IMAGE                    COMMAND                  CREATED
+       STATUS              PORTS                    NAMES
+7c5d60cab0b0        prom/prometheus:v2.1.0   "/bin/prometheus --c…"   55 seconds ago      Up 52 seconds       0.0.0.0:9090->9090/tcp   prometheus
+```
+* Prometheus запустился, веб-интерфес по умолчанию доступен на порту 9090
+* Посмотреть адрес хоста `docker-machine ip docker-host2`
+
+* Остановим контейнер
+```
+$ docker stop prometheus
+```
+
+### Переупорядочим структуру директорий
+* Каталог docker-monolith командой git mv перенесён в созданный каталог docker. В него также перенесены файлы docker-compose и .env из каталога src
+
+* Создан каталог monitoring/prometheus
+
+### Конфигурация Prometheus
+* Создам файл конфигурации
+```
+$ wget https://gist.githubusercontent.com/Nklya/bfe2d817f72bc6376fb7d05507e97a1d/raw/9de77435fd7cb626767f358a488d5346ca7f3a74/prometheus.yml
+```
+* Создаем образ
+```
+$ export USER_NAME=mrshadow74
+$ docker build -t $USER_NAME/prometheus .
+Successfully built 3a43299d4da1
+Successfully tagged mrshadow74/prometheus:latest
+```
+
+
+
+
+
