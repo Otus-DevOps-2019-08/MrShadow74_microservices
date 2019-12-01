@@ -1465,8 +1465,148 @@ $ docker build -t $USER_NAME/prometheus .
 Successfully built 3a43299d4da1
 Successfully tagged mrshadow74/prometheus:latest
 ```
+## Образы микросервисов
+### Сборка
+```
+for i in ui post-py comment; do cd src/$i; bash docker_build.sh; cd -; done
+```
+или
+```
+/src/ui $ bash docker_build.sh
+/src/post-py $ bash docker_build.sh
+/src/comment $ bash docker_build.sh
+```
+* Внесены изменения в файл `docker-compose.yml`: директивы build заменены на image.
+* Для сервиса Prometheus в `docker/dockercompose.yml` добавлена секция network.
+* Скорректирован файл `.env` под реалии
+```
+$ cat docker/.env
+USERNAME=mrshadow74
+POST_VERSION=latest
+COMMENT_VERSION=latest
+UI_VERSION=latest
+APP_PORT=9292:9292
+```
 
+### Запуск микросервисов
+* После всех изменений проведём запуск инфраструктуры
+```
+$ docker-compose up -d
+Pulling post_db (mongo:3.2)...
+3.2: Pulling from library/mongo
+a92a4af0fb9c: Pull complete
+74a2c7f3849e: Pull complete
+927b52ab29bb: Pull complete
+e941def14025: Pull complete
+be6fce289e32: Pull complete
+f6d82baac946: Pull complete
+7c1a640b9ded: Pull complete
+e8b2fc34c941: Pull complete
+1fd822faa46a: Pull complete
+61ba5f01559c: Pull complete
+db344da27f9a: Pull complete
+Digest: sha256:0463a91d8eff189747348c154507afc7aba045baa40e8d58d8a4c798e71001f3
+Status: Downloaded newer image for mongo:3.2
+Creating docker_ui_1         ... done
+Creating docker_post_1       ... done
+Creating docker_comment_1    ... done
+Creating docker_prometheus_1 ... done
+Creating docker_post_db_1    ... done
+```
+* Проверяем - Prometheus доступен и работает
 
+## Мониторинг состояния микросервисов
+* Список endpoint-ов `http://35.233.74.100:9090/targets`
 
+### Healthchecks 
+* Если требуемые для его работы сервисы здоровы, то healthcheck проверка возвращает status = 1, что соответсвует тому, что сам сервис здоров.
+* Если один из нужных ему сервисов нездоров или недоступен, то проверка вернет status = 0.
+* Остановим post сервис, посмотрим как это отразится на мониторинге, и запустим обратно
+```
+$ docker-compose stop post
+Stopping starthealthchecks_post_1 ... done
 
+$ docker-compose start post
+Starting post ... done
+```
+* Аналогично для comment сервиса
+```
+$ docker-compose stop comment
+Stopping docker_comment_1 ... done
+
+$ docker-compose start comment
+Starting comment ... done
+```
+
+## Сбор метрик хоста
+* Exporters. Расширим файл `docker-compose.yml` контейнером для `node-exporter`
+```
+services:
+
+  node-exporter:
+    image: prom/node-exporter:v0.15.2
+    user: root
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.ignored-mount-points="^/(sys|proc|dev|host|etc)($$|/)"'
+```
+
+* Добавим в файл `prometheus.yml` запись для контроля за сервисом `node`
+```
+- job_name: 'node'
+  static_configs:
+    - targets:
+      - 'node-exporter:9100'
+```
+* Соберем новый Docker для Prometheus
+```
+$ docker build -t $USER_NAME/prometheus .
+```
+* И перезапустим Prometheus
+```
+/docker$ docker-compose down
+Stopping docker_post_db_1       ... done
+Stopping docker_post_1          ... done
+Stopping docker_node-exporter_1 ... done
+Stopping docker_comment_1       ... done
+Stopping docker_prometheus_1    ... done
+Stopping docker_ui_1            ... done
+Removing docker_post_db_1       ... done
+Removing docker_post_1          ... done
+Removing docker_node-exporter_1 ... done
+Removing docker_comment_1       ... done
+Removing docker_prometheus_1    ... done
+Removing docker_ui_1            ... done
+Removing network docker_back_net
+Removing network docker_front_net
+/docker$ docker-compose up -d
+Creating network "docker_front_net" with the default driver
+Creating network "docker_back_net" with the default driver
+Creating docker_prometheus_1    ... done
+Creating docker_post_db_1       ... done
+Creating docker_comment_1       ... done
+Creating docker_node-exporter_1 ... done
+Creating docker_ui_1            ... done
+Creating docker_post_1          ... done
+```
+
+* Выгрузим в DockerHub образы
+```
+$ docker login
+
+$ docker push $USER_NAME/ui && docker push $USER_NAME/comment && docker push $USER_NAME/post && docker push $USER_NAME/prometheus
+```
+
+* Ссылки на образы
+```
+https://hub.docker.com/repository/docker/mrshadow74/prometheus
+https://hub.docker.com/repository/docker/mrshadow74/post
+https://hub.docker.com/repository/docker/mrshadow74/comment
+https://hub.docker.com/repository/docker/mrshadow74/ui
+```
 
