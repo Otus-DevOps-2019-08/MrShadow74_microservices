@@ -286,8 +286,9 @@ docker-machine version 0.16.0, build 702c267f
 них docker engine. Имеет поддержку облаков и систем виртуализации (Virtualbox, GCP и
 др.)
 * Команда создания - `docker-machine create <имя>`. Имен может быть много, переключение
-между ними через `eval $(docker-machine env <имя>)`. Переключение на локальный докер
-- `eval $(docker-machine env --unset)`. Удаление - `docker-machine rm <имя>`.
+между ними через `eval $(docker-machine env <имя>)`.
+* Переключение на локальный докер- `eval $(docker-machine env --unset)`.
+* Удаление - `docker-machine rm <имя>`.
 ```
 $ export GOOGLE_PROJECT=global-incline-258416
 
@@ -862,7 +863,7 @@ $ docker run -d --network=reddit -p 9292:9292 mrshadow74/ui:2.0
 
 * Проверяем - база на месте, записи в базе сохранились.
 
-# Homework 13. Docker: сети, docker-compose
+# Homework 14. Docker: сети, docker-compose
 
 * План
  - работа с сетями Docker
@@ -1048,7 +1049,6 @@ docker network create reddit --driver bridge
 ```
 $ docker run -d --network=reddit --network-alias=post mrshadow74/post:1.0
 deb693ceff8af30c3833fa1ca87e2c284b7919a66dbc4e88bce4bd47cfd6b95b
-$ docker run -d --network=reddit --network-alias=comment mrshadow74/comme
 $ docker run -d --network=reddit --network-alias=comment mrshadow74/comment:1.0
 ab1db118445dab98e17df09ae16f54a2986a0879e0400c5bd6e36ab219000389
 $ docker run -d --network=reddit -p 9292:9292 mrshadow74/ui:1.0
@@ -1096,7 +1096,7 @@ br-7ef8daa1f0b5 Link encap:Ethernet  HWaddr 02:42:10:ab:9a:25
 
 * Посмотрим, как выглядит iptables
 ```
-~$ sudo iptables -nL -t nat
+$ sudo iptables -nL -t nat
 Chain PREROUTING (policy ACCEPT)
 target     prot opt source               destination
 DOCKER     all  --  0.0.0.0/0            0.0.0.0/0            ADDRTYPE match dst-type LOCAL
@@ -1194,4 +1194,209 @@ volumes:
   comment:
   ui:
 ```
+
+# Homework 15. Устройство Gitlab CI. Построение процесса непрерывной поставки
+
+* Цель задания
+ • Подготовить инсталляцию Gitlab CI
+ • Подготовить репозиторий с кодом приложения
+ • Описать для приложения этапы пайплайна
+ • Определить окружения
+
+* Создана ветка gitlab-ci-1
+
+## Инсталляция Gitlab CI
+
+* Создан хост gitlab-ci
+
+```
+$ export GOOGLE_PROJECT=global-incline-258416
+
+$ docker-machine create --driver google \
+ --google-machine-image https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/family/ubuntu-1604-lts \
+ --google-machine-type n1-standard-1 \
+ --google-zone europe-west1-b \
+ --google-disk-size 50 \
+ docker-host
+
+$ eval $(docker-machine env docker-host)
+
+$ docker-machine ls
+NAME          ACTIVE   DRIVER   STATE     URL                      SWARM   DOCKER     ERRORS
+docker-host   *        google   Running   tcp://35.205.152.54:2376           v19.03.5
+```
+
+* Подготавливаем окружение, создаем необходимые директории
+```
+$ docker-machine ssh docker-host
+docker-user@docker-host:~$ sudo mkdir -p /srv/gitlab/config /srv/gitlab/data /srv/gitlab/logs
+docker-user@docker-host:~$ cd /srv/gitlab/
+docker-user@docker-host:/srv/gitlab$ sudo wget https://gist.githubusercontent.com/Nklya/c2ca40a128758e2dc2244beb09caebe1/raw/e9ba646b06a597734f8dfc0789aae79bc43a7242/docker-compose.yml
+
+```
+* Запускаем Gitlab CI
+```
+docker-compose up -d
+```
+* Зашел проверить `http://104.155.69.131`, вижу мордочку Gitlab. Меняю пароль root для доступа в систему.
+* Создам группу *homework*, проект *example*
+* Добавим remote в MrShadow74_microservices
+```
+git checkout -b gitlab-ci-1
+git remote add gitlab http://<your-vm-ip>/homework/example.git
+git push gitlab gitlab-ci-1
+```
+* Добавляем CI/CD Pipeline
+```
+wget https://gist.githubusercontent.com/Nklya/ab352648c32492e6e9b32440a79a5113/raw/265f383a48b980ac6efd9b4c23f2b68a6bf70ce5/.gitlab-ci.yml
+git add .gitlab-ci.yml
+git commit -m 'add pipeline definition'
+git push gitlab gitlab-ci-1
+```
+## Gitlab CI Runner
+* Получаем токен для работы runner
+* На сервер Gitlab CI выполним
+```
+docker run -d --name gitlab-runner --restart always \
+-v /srv/gitlab-runner/config:/etc/gitlab-runner \
+-v /var/run/docker.sock:/var/run/docker.sock \
+gitlab/gitlab-runner:latest
+```
+* Регистрируем runner
+```
+docker exec -it gitlab-runner gitlab-runner register --run-untagged --locked=false
+Please enter the gitlab-ci coordinator URL (e.g. https://gitlab.com/):
+http://<YOUR-VM-IP>/
+Please enter the gitlab-ci token for this runner:
+<TOKEN>
+Please enter the gitlab-ci description for this runner:
+[38689f5588fe]: my-runner
+Please enter the gitlab-ci tags for this runner (comma separated):
+linux,xenial,ubuntu,docker
+Please enter the executor:
+docker
+Please enter the default Docker image (e.g. ruby:2.1):
+alpine:latest
+Runner registered successfully.
+```
+* Проверяем состояние runner - запущен, привязан к проекту, работает
+* Добавим тестирование приложения reddit в pipeline
+```
+git clone https://github.com/express42/reddit.git && rm -rf ./reddit/.git
+git add reddit/
+git commit -m “Add reddit app”
+git push gitlab gitlab-ci-1
+```
+
+## Тестируем приложение reddit
+* Скорректируем файл `.gitlab-ci.yml`
+```
+image: ruby:2.4.2
+
+stages:
+  - build
+  - test
+  - review
+
+variables:
+  DATABASE_URL: 'mongodb://mongo/user_posts'
+
+build_job:
+  stage: build
+  script:
+    - echo 'Building'
+
+before_script:
+    - cd reddit
+    - bundle install
+
+test_unit_job:
+  stage: test
+  services:
+    - mongo:latest
+  script:
+    - ruby simpletest.rb
+
+test_integration_job:
+  stage: test
+  script:
+    - echo 'Testing 2'
+
+deploy_dev_job:
+  stage: review
+  script:
+    - echo 'Deploy'
+  environment:
+    name: dev
+    url: http://dev.example.com
+```
+
+* Создадим файл simpletest.rb
+```
+wget https://gist.githubusercontent.com/Nklya/d70ff7c6d1c02de8f18bcd049e904942/raw/9c82d9a0f16c38b905c7721f54b9b85fff903b3a/simpletest.rb
+```
+
+## Staging и Production
+
+* Скорректируем `.gitlab-ci.yml`, добавим в него окружение Stage и Production, а так же правило контроля версии для публикации в Stage и Production
+```
+staging:
+  stage: stage
+  when: manual
+  only:
+    - /^\d+\.\d+\.\d+/
+  script:
+    - echo 'Deploy'
+  environment:
+    name: stage
+    url: https://beta.example.com
+
+production:
+  stage: production
+  when: manual
+  only:
+    - /^\d+\.\d+\.\d+/
+  script:
+    - echo 'Deploy'
+  environment:
+    name: production
+    url: https://example.com
+```
+* Тепер push без тега версии не будет запускать джобы Staging и Prodaction
+* При налии тега будет запускаться полный pipeline
+```
+git commit -a -m ‘#4 add logout button to profile page’
+git tag 2.4.10
+git push gitlab gitlab-ci-1 --tags
+```
+
+## Динамические окружения
+
+* Дополним `.gitlab-ci.yml` созданием динамического окружения
+```
+branch review:
+  stage: review
+  script: echo "Deploy to $CI_ENVIRONMENT_SLUG"
+  environment:
+    name: branch/$CI_COMMIT_REF_NAME
+    url: http://$CI_ENVIRONMENT_SLUG.example.com
+  only:
+    - branches
+  except:
+    - master
+``
+
+## Задание со *
+
+```
+$ cat gitlab-runner.sh
+docker run -d --name gitlab-runner --restart always \  
+  -v /srv/gitlab-runner/config:/etc/gitlab-runner \  
+  -v /var/run/docker.sock:/var/run/docker.sock \  
+  gitlab/gitlab-runner:latest
+docker exec -it gitlab-runner gitlab-runner register --run-untagged --locked=false
+```
+
+* Добавлена интаграция со Slack
+https://app.slack.com/client/T6HR0TUP3/CN5R4PTGR
 
