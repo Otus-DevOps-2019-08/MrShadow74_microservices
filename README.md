@@ -1477,7 +1477,13 @@ for i in ui post-py comment; do cd src/$i; bash docker_build.sh; cd -; done
 /src/comment $ bash docker_build.sh
 ```
 * Внесены изменения в файл `docker-compose.yml`: директивы build заменены на image.
-* Для сервиса Prometheus в `docker/dockercompose.yml` добавлена секция network.
+* Для сервисов в `docker/dockercompose.yml` добавлена секция network.
+```
+networks:
+  - front_net
+  - back_net
+```
+
 * Скорректирован файл `.env` под реалии
 ```
 $ cat docker/.env
@@ -1609,4 +1615,50 @@ https://hub.docker.com/repository/docker/mrshadow74/post
 https://hub.docker.com/repository/docker/mrshadow74/comment
 https://hub.docker.com/repository/docker/mrshadow74/ui
 ```
+
+## Задание со *
+
+### Добавить в Prometheus мониторинг MongoDB
+
+* Для выполнения задания буду использовать bitnami/mongodb-exporter версии latest. Дополню записью файл `docker-compose.yml`
+```
+mongodb-exporter:
+  image: bitnami/mongodb-exporter:latest
+  ports:
+    - 9216:9216
+  networks:
+    - back_net
+    - front_net
+```
+
+* Также добавлю в файл `prometheus.yml` запись о джобе mongod
+```
+- job_name: 'mongod'
+  static_configs:
+    - targets:
+      - 'post_db:27017'
+```
+
+* Для работы экспортера в mongod создана отдельная учётная запись
+
+### Добавить в Prometheus мониторинг сервисов comment, post, ui с помощью blackbox экспортера.
+* Для выполнения задания буду использовать prom/blackbox-exporter версии latest. Дополню записью файл `docker-compose.yml`
+```
+blackbox-exporter:
+  image: prom/blackbox-exporter:latest
+  networks:
+    - back_net
+    - front_net
+```
+* Также добавлю в файл `prometheus.yml` запись о джобе
+```
+- job_name: 'blackbox'
+  static_configs:
+    - targets:
+      - 'comment:80'
+      - 'post:80'
+      - 'ui:80'
+```
+
+* Создан `Makefile`
 
