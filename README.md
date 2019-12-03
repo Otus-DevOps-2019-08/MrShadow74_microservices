@@ -1400,3 +1400,265 @@ docker exec -it gitlab-runner gitlab-runner register --run-untagged --locked=fal
 * Добавлена интаграция со Slack
 https://app.slack.com/client/T6HR0TUP3/CN5R4PTGR
 
+# Homework 16. Введение в мониторинг. Системы мониторинга.
+* Создана ветка monitoring-1
+
+## План
+* Prometheus: запуск, конфигурация, знакомство с Web UI
+* Мониторинг состояния микросервисов
+* Сбор метрик хоста с использованием экспортера
+* Задания со *
+
+## Подготовка окружения
+* Создадим правило фаервола для Prometheus и Puma
+```
+$ gcloud compute firewall-rules create prometheus-default --allow tcp:9090
+$ gcloud compute firewall-rules create puma-default --allow tcp:9292
+```
+* Создадим docker-хост в GCE
+```
+$ export GOOGLE_PROJECT=global-incline-258416
+
+$ docker-machine create --driver google \
+ --google-machine-image https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/family/ubuntu-1604-lts \
+ --google-machine-type n1-standard-1 \
+ --google-zone europe-west1-b \
+ docker-host2
+
+$ eval $(docker-machine env docker-host2)
+```
+
+## Запуск Prometheus
+* На основе готового docker-образа prometheus запустим систему мониторинга
+```
+$ docker run --rm -p 9090:9090 -d --name prometheus prom/prometheus:v2.1.0
+Status: Downloaded newer image for prom/prometheus:v2.1.0
+7c5d60cab0b09c669bbde525d5e9852dd415745d3ad4edac7223fff7a2a37ae6
+
+$ docker ps
+CONTAINER ID        IMAGE                    COMMAND                  CREATED
+       STATUS              PORTS                    NAMES
+7c5d60cab0b0        prom/prometheus:v2.1.0   "/bin/prometheus --c…"   55 seconds ago      Up 52 seconds       0.0.0.0:9090->9090/tcp   prometheus
+```
+* Prometheus запустился, веб-интерфес по умолчанию доступен на порту 9090
+* Посмотреть адрес хоста `docker-machine ip docker-host2`
+
+* Остановим контейнер
+```
+$ docker stop prometheus
+```
+
+### Переупорядочим структуру директорий
+* Каталог docker-monolith командой git mv перенесён в созданный каталог docker. В него также перенесены файлы docker-compose и .env из каталога src
+
+* Создан каталог monitoring/prometheus
+
+### Конфигурация Prometheus
+* Создам файл конфигурации
+```
+$ wget https://gist.githubusercontent.com/Nklya/bfe2d817f72bc6376fb7d05507e97a1d/raw/9de77435fd7cb626767f358a488d5346ca7f3a74/prometheus.yml
+```
+* Создаем образ
+```
+$ export USER_NAME=mrshadow74
+$ docker build -t $USER_NAME/prometheus .
+Successfully built 3a43299d4da1
+Successfully tagged mrshadow74/prometheus:latest
+```
+## Образы микросервисов
+### Сборка
+```
+for i in ui post-py comment; do cd src/$i; bash docker_build.sh; cd -; done
+```
+или
+```
+/src/ui $ bash docker_build.sh
+/src/post-py $ bash docker_build.sh
+/src/comment $ bash docker_build.sh
+```
+* Внесены изменения в файл `docker-compose.yml`: директивы build заменены на image.
+* Для сервисов в `docker/dockercompose.yml` добавлена секция network.
+```
+networks:
+  - front_net
+  - back_net
+```
+
+* Скорректирован файл `.env` под реалии
+```
+$ cat docker/.env
+USERNAME=mrshadow74
+POST_VERSION=latest
+COMMENT_VERSION=latest
+UI_VERSION=latest
+APP_PORT=9292:9292
+```
+
+### Запуск микросервисов
+* После всех изменений проведём запуск инфраструктуры
+```
+$ docker-compose up -d
+Pulling post_db (mongo:3.2)...
+3.2: Pulling from library/mongo
+a92a4af0fb9c: Pull complete
+74a2c7f3849e: Pull complete
+927b52ab29bb: Pull complete
+e941def14025: Pull complete
+be6fce289e32: Pull complete
+f6d82baac946: Pull complete
+7c1a640b9ded: Pull complete
+e8b2fc34c941: Pull complete
+1fd822faa46a: Pull complete
+61ba5f01559c: Pull complete
+db344da27f9a: Pull complete
+Digest: sha256:0463a91d8eff189747348c154507afc7aba045baa40e8d58d8a4c798e71001f3
+Status: Downloaded newer image for mongo:3.2
+Creating docker_ui_1         ... done
+Creating docker_post_1       ... done
+Creating docker_comment_1    ... done
+Creating docker_prometheus_1 ... done
+Creating docker_post_db_1    ... done
+```
+* Проверяем - Prometheus доступен и работает
+
+## Мониторинг состояния микросервисов
+* Список endpoint-ов `http://35.233.74.100:9090/targets`
+
+### Healthchecks 
+* Если требуемые для его работы сервисы здоровы, то healthcheck проверка возвращает status = 1, что соответсвует тому, что сам сервис здоров.
+* Если один из нужных ему сервисов нездоров или недоступен, то проверка вернет status = 0.
+* Остановим post сервис, посмотрим как это отразится на мониторинге, и запустим обратно
+```
+$ docker-compose stop post
+Stopping starthealthchecks_post_1 ... done
+
+$ docker-compose start post
+Starting post ... done
+```
+* Аналогично для comment сервиса
+```
+$ docker-compose stop comment
+Stopping docker_comment_1 ... done
+
+$ docker-compose start comment
+Starting comment ... done
+```
+
+## Сбор метрик хоста
+* Exporters. Расширим файл `docker-compose.yml` контейнером для `node-exporter`
+```
+services:
+
+  node-exporter:
+    image: prom/node-exporter:v0.15.2
+    user: root
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.ignored-mount-points="^/(sys|proc|dev|host|etc)($$|/)"'
+```
+
+* Добавим в файл `prometheus.yml` запись для контроля за сервисом `node`
+```
+- job_name: 'node'
+  static_configs:
+    - targets:
+      - 'node-exporter:9100'
+```
+* Соберем новый Docker для Prometheus
+```
+$ docker build -t $USER_NAME/prometheus .
+```
+* И перезапустим Prometheus
+```
+/docker$ docker-compose down
+Stopping docker_post_db_1       ... done
+Stopping docker_post_1          ... done
+Stopping docker_node-exporter_1 ... done
+Stopping docker_comment_1       ... done
+Stopping docker_prometheus_1    ... done
+Stopping docker_ui_1            ... done
+Removing docker_post_db_1       ... done
+Removing docker_post_1          ... done
+Removing docker_node-exporter_1 ... done
+Removing docker_comment_1       ... done
+Removing docker_prometheus_1    ... done
+Removing docker_ui_1            ... done
+Removing network docker_back_net
+Removing network docker_front_net
+/docker$ docker-compose up -d
+Creating network "docker_front_net" with the default driver
+Creating network "docker_back_net" with the default driver
+Creating docker_prometheus_1    ... done
+Creating docker_post_db_1       ... done
+Creating docker_comment_1       ... done
+Creating docker_node-exporter_1 ... done
+Creating docker_ui_1            ... done
+Creating docker_post_1          ... done
+```
+
+* Выгрузим в DockerHub образы
+```
+$ docker login
+
+$ docker push $USER_NAME/ui && docker push $USER_NAME/comment && docker push $USER_NAME/post && docker push $USER_NAME/prometheus
+```
+
+* Ссылки на образы
+```
+https://hub.docker.com/repository/docker/mrshadow74/prometheus
+https://hub.docker.com/repository/docker/mrshadow74/post
+https://hub.docker.com/repository/docker/mrshadow74/comment
+https://hub.docker.com/repository/docker/mrshadow74/ui
+```
+
+## Задание со *
+
+### Добавить в Prometheus мониторинг MongoDB
+
+* Для выполнения задания буду использовать bitnami/mongodb-exporter версии latest. Дополню записью файл `docker-compose.yml`
+```
+mongodb-exporter:
+  image: bitnami/mongodb-exporter:latest
+  ports:
+    - 9216:9216
+  networks:
+    - back_net
+    - front_net
+```
+
+* Также добавлю в файл `prometheus.yml` запись о джобе mongod
+```
+- job_name: 'mongod'
+  static_configs:
+    - targets:
+      - 'post_db:27017'
+```
+
+* Для работы экспортера в mongod создана отдельная учётная запись
+
+### Добавить в Prometheus мониторинг сервисов comment, post, ui с помощью blackbox экспортера.
+* Для выполнения задания буду использовать prom/blackbox-exporter версии latest. Дополню записью файл `docker-compose.yml`
+```
+blackbox-exporter:
+  image: prom/blackbox-exporter:latest
+  networks:
+    - back_net
+    - front_net
+```
+* Также добавлю в файл `prometheus.yml` запись о джобе
+```
+- job_name: 'blackbox'
+  static_configs:
+    - targets:
+      - 'comment:80'
+      - 'post:80'
+      - 'ui:80'
+```
+
+* Создан `Makefile`
+
