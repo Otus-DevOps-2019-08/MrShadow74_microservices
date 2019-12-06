@@ -1662,3 +1662,33 @@ blackbox-exporter:
 
 * Создан `Makefile`
 
+# Мониторинг приложения и инфраструктуры
+
+## План
+* Мониторинг Docker контейнеров
+* Визуализация метрик
+* Сбор метрик работы приложения и бизнес метрик
+* Настройка и проверка алертинга
+
+## Подготовка окружения
+* Создадим Docker хост в GCE и настроим локальное окружение
+```
+$ export GOOGLE_PROJECT=global-incline-258416
+
+$ docker-machine create --driver google \
+ --google-machine-image https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/family/ubuntu-1604-lts \
+ --google-machine-type n1-standard-1 \
+ --google-zone europe-west1-b \
+ docker-host
+
+$ eval $(docker-machine env docker-host)
+
+$ docker-machine ip docker-host
+34.77.84.240
+```
+
+## Мониторинг Docker контейнеров
+* Разделим файлы Docker Compose
+* Оставим описание приложений в `docker-compose.yml`, а мониторинг выделим в отдельный файл `docker-composemonitoring.yml`
+* Для запуска приложений будем как и ранее использовать `docker-compose up -d`, а для мониторинга - `docker-compose -f docker-compose-monitoring.yml up -d`
+
