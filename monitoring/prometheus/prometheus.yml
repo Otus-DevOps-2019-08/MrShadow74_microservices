@@ -35,3 +35,8 @@ scrape_configs:
         - 'comment:80'
         - 'post:80'
 
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets:
+        - 'cadvisor:8080'
+

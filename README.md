@@ -1684,11 +1684,88 @@ $ docker-machine create --driver google \
 $ eval $(docker-machine env docker-host)
 
 $ docker-machine ip docker-host
-34.77.84.240
+35.240.56.196
 ```
 
 ## Мониторинг Docker контейнеров
 * Разделим файлы Docker Compose
 * Оставим описание приложений в `docker-compose.yml`, а мониторинг выделим в отдельный файл `docker-composemonitoring.yml`
 * Для запуска приложений будем как и ранее использовать `docker-compose up -d`, а для мониторинга - `docker-compose -f docker-compose-monitoring.yml up -d`
+
+## cAdvisor
+* Будем использовать для наблюдения за состоянием наших Docker контейнеров.
+* Дополним `docker-compose-monitoring.yml` следующей записью
+```
+cadvisor:
+  image: google/cadvisor:v0.29.0
+  volumes:
+    - '/:/rootfs:ro'
+    - '/var/run:/var/run:rw'
+    - '/sys:/sys:ro'
+    - '/var/lib/docker/:/var/lib/docker:ro'
+  ports:
+    - '8080:8080'
+```
+* Добавим информацию о новом сервисе в конфигурацию Prometheus, чтобы он начал собирать метрики
+```
+- job_name: 'cadvisor'
+  static_configs:
+    - targets:
+      - 'cadvisor:8080'
+```
+* Пересоберем образ Prometheus с обновленной конфигурацией
+```
+$ export USER_NAME=mrshadow74
+$ docker build -t $USER_NAME/prometheus .
+
+Sending build context to Docker daemon  3.584kB
+Step 1/2 : FROM prom/prometheus:v2.1.0
+v2.1.0: Pulling from prom/prometheus
+Image docker.io/prom/prometheus:v2.1.0 uses outdated schema1 manifest format. Please upgrade to a schema2 image for better future compatibility. More information at https://docs.docker.com/registry/spec/deprecated-schema-v1/
+aab39f0bc16d: Pull complete
+a3ed95caeb02: Pull complete
+2cd9e239cea6: Pull complete
+48afad9e6cdd: Pull complete
+8fb7aa0e1c16: Pull complete
+3b9d4fd63760: Pull complete
+57a87cf4a659: Pull complete
+9a31588e38ae: Pull complete
+7a0ac0080f04: Pull complete
+659e24e6d37f: Pull complete
+Digest: sha256:7b987901dbc44d17a88e7bda42dbbbb743c161e3152662959acd9f35aeefb9a3
+Status: Downloaded newer image for prom/prometheus:v2.1.0
+ ---> c8ecf7c719c1
+Step 2/2 : ADD prometheus.yml /etc/prometheus/
+ ---> 0be36d79b399
+Successfully built 0be36d79b399
+Successfully tagged mrshadow74/prometheus:latest
+```
+* Запустим сервисы
+```
+$ docker-compose up -d
+Creating docker_ui_1      ... done
+Creating docker_post_db_1 ... done
+Creating docker_post_1    ... done
+Creating docker_comment_1 ... done
+
+$ docker-compose -f docker-compose-monitoring.yml up -d
+Creating docker_blackbox-exporter_1 ... done
+Creating docker_prometheus_1        ... done
+Creating docker_mongodb-exporter_1  ... done
+Creating docker_node-exporter_1     ... done
+Creating docker_cadvisor_1          ... done
+```
+
+* Создадим правила для фаервола
+```
+$ gcloud compute firewall-rules create cadvisor-allow --allow tcp:8080
+$ gcloud compute firewall-rules create prometheus-default-allow --allow tcp:9090
+```
+
+* Откроем `http://35.240.56.196:8080`, зайдем в интерфейс cAdvisor UI
+* Откроем `http://35.240.56.196:8080/metrics`, зайдем в интерфейс cAdvisor UI, посмотрим на список собираемых метрик. Имена метрик контейнеров начинаются со слова
+container.
+
+
+
 
