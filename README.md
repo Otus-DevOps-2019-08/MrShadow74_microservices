@@ -1857,6 +1857,90 @@ histogram_quantile(0.95, sum(rate(ui_request_latency_seconds_bucket[5m])) by (le
 * Создадим новый дашборд, назовем его *Business_Logic_Monitoring* и построим графики с  функциями `rate(post_count[1h])` и `rate(comment_count[1h])`
 * Выгружен дашборд в файл `Business_Logic_Monitoring.json`
 
+## Алертинг
+
+### Alertmanager
+
+* Alertmanager - дополнительный компонент для системы мониторинга Prometheus, который отвечает за первичную обработку алертов и дальнейшую отправку оповещений по
+заданному назначению. Создадим новую директорию monitoring/alertmanager. В этой
+директории создам Dockerfile со следующим содержимым:
+```
+FROM prom/alertmanager:v0.14.0
+ADD config.yml /etc/alertmanager/
+```
+* Настройки Alertmanager-а как и Prometheus задаются через YAML файл или опции командой строки. В директории monitoring/alertmanager создам файл config.yml, в котором определим отправку нотификаций в тестовый слак канал.
+
+* Соберем образ alertmanager
+```
+$ docker build -t $USER_NAME/alertmanager . 
+```
+
+* Добавим новый сервис в компоуз файл мониторинга
+```
+alertmanager:
+  image: ${USER_NAME}/alertmanager
+  command:
+    - '--config.file=/etc/alertmanager/config.yml'
+  ports:
+    - 9093:9093
+```
+* Создадим правило файрвола
+```
+$ gcloud compute firewall-rules create altermanager-allow --allow tcp:9093
+```
+
+### Alert rules
+* Создадим файл alerts.yml
+```
+groups:
+  - name: alert.rules
+    rules:
+    - alert: InstanceDown
+      expr: up == 0
+      for: 1m
+      labels:
+        severity: page
+      annotations:
+        description: '{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 1 minute'
+        summary: 'Instance {{ $labels.instance }} down'
+```
+* Добавим операцию копирования данного файла в Dockerfile
+```
+FROM prom/prometheus:v2.1.0
+ADD prometheus.yml /etc/prometheus/
+ADD alerts.yml /etc/prometheus/
+```
+* Добавим информацию о правилах в конфиг Prometheus
+```
+rule_files:
+  - "alerts.yml"
+
+alerting:
+  alertmanagers:
+  - scheme: http
+    static_configs:
+    - targets:
+      - "alertmanager:9093"
+```
+
+* Пересоберем образ Prometheus
+```
+$ docker build -t $USER_NAME/prometheus .
+```
+
+### Проверка алерта
+
+* Пересоздадим нашу Docker инфраструктуру мониторинга
+```
+$ docker-compose -f docker-compose-monitoring.yml down
+$ docker-compose -f docker-compose-monitoring.yml up -d
+```
+
+* Проверка алерта. Остановим один из сервисов и подождем одну минуту
+```
+$ docker-compose stop post
+```
+
 
 
 
