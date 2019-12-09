@@ -1766,6 +1766,84 @@ $ gcloud compute firewall-rules create prometheus-default-allow --allow tcp:9090
 * Откроем `http://35.240.56.196:8080/metrics`, зайдем в интерфейс cAdvisor UI, посмотрим на список собираемых метрик. Имена метрик контейнеров начинаются со слова
 container.
 
+## Визуализация метрик: Grafana
 
+* Используем инструмент Grafana для визуализации данных из Prometheus. Добавим новый сервис в `docker-compose-monitoring.yml`
+
+```
+  grafana:
+    image: grafana/grafana:5.0.0
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=secret
+    depends_on:
+      - prometheus
+    ports:
+      - 3000:3000
+
+volumes:
+  grafana_data:
+```
+
+### Grafana: Web UI
+* Создадим новое правило для файрвола и запустим новый сервис
+* И добавим сразу правило в файрвол
+```
+$ gcloud compute firewall-rules create grafana-allow --allow tcp:3000
+
+$ docker-compose -f docker-compose-monitoring.yml up -d grafana
+```
+
+* Grafana: Добавление источника данных
+* Add data source, зададим нужный тип и параметры подключения
+```
+Name: Prometheus Server
+Type: Prometheus
+URL: http://prometheus:9090
+Access: Proxy
+```
+
+### Дашборды Grafana
+* На сайте `https://grafana.com/grafana/dashboards` можно найти и скачать большое
+количество уже созданных официальных и комьюнити дашбордов для визуализации различного типа метрик для разных систем мониторинга и баз данных
+* В директории monitoring создадим директории grafana/dashboards, куда поместим скачанный дашборд с именем `DockerMonitoring.json`
+* Загрузим JSON для дашборда Docker and system monitoring в директорию grafana/dashboards с именем `DockerMonitoring.json`
+* Добавим в файл `prometheus.yml` информацию о post-сервисе
+```
+- job_name: 'post'
+  static_configs:
+    - targets:
+    - 'post:5000'
+```
+* И добавим сразу правило в файрвол
+```
+$ gcloud compute firewall-rules create grafana-post-allow --allow tcp:5000
+```
+
+* Пересоберем образ Prometheus с обновленной конфигурацией
+```
+$ export USER_NAME=mrshadow74
+$ docker build -t $USER_NAME/prometheus .
+``
+
+* Пересоздадим Docker инфраструктуру мониторинга и добавим несколько постов в приложении и несколько комментов, чтобы собрать значения метрик приложения
+```
+$ docker-compose -f docker-compose-monitoring.yml down
+$ docker-compose -f docker-compose-monitoring.yml up -d
+```
+* Создадим дашбор `ui_request_count`
+* Создадим дашбор `ui_request_count` с выводом графика ошибок 4хх и 5хх
+```
+rate(ui_request_count{http_status=~"^[45].*"}[1m])
+```
+
+* Изменим базовый график `ui_request_count`, модифицировав его по аналогии с 
+```
+rate(ui_request_count{http_status=~"^[2].*"}[1m])
+```
+
+* Выгружен дашборд в файл `UI_Service_Monitoring.json`
 
 
