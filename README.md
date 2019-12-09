@@ -1843,7 +1843,20 @@ rate(ui_request_count{http_status=~"^[45].*"}[1m])
 ```
 rate(ui_request_count{http_status=~"^[2].*"}[1m])
 ```
+* Создана гистограмма 95%
+```
+histogram_quantile(0.95, sum(rate(ui_request_latency_seconds_bucket[5m])) by (le))
+```
 
 * Выгружен дашборд в файл `UI_Service_Monitoring.json`
+
+## Сбор метрик бизнес-логики
+
+### Мониторинг бизнес-логики
+
+* Создадим новый дашборд, назовем его *Business_Logic_Monitoring* и построим графики с  функциями `rate(post_count[1h])` и `rate(comment_count[1h])`
+* Выгружен дашборд в файл `Business_Logic_Monitoring.json`
+
+
 
 
