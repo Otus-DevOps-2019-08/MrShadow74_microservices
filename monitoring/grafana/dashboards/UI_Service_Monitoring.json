@@ -54,6 +54,7 @@
       "dashLength": 10,
       "dashes": false,
       "datasource": "${DS_PROMETHEUS_SERVER}",
+      "description": "All HTTP Requests that UI service recieves",
       "fill": 1,
       "gridPos": {
         "h": 9,
@@ -61,88 +62,7 @@
         "x": 0,
         "y": 0
       },
-      "id": 4,
-      "legend": {
-        "avg": false,
-        "current": false,
-        "max": false,
-        "min": false,
-        "show": true,
-        "total": false,
-        "values": false
-      },
-      "lines": true,
-      "linewidth": 1,
-      "links": [],
-      "nullPointMode": "null",
-      "percentage": false,
-      "pointradius": 5,
-      "points": false,
-      "renderer": "flot",
-      "seriesOverrides": [],
-      "spaceLength": 10,
-      "stack": false,
-      "steppedLine": false,
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.95, sum(rate(ui_request_latency_seconds_bucket[5m])) by (le))",
-          "format": "time_series",
-          "hide": false,
-          "intervalFactor": 1,
-          "refId": "A"
-        }
-      ],
-      "thresholds": [],
-      "timeFrom": null,
-      "timeShift": null,
-      "title": "95%",
-      "tooltip": {
-        "shared": true,
-        "sort": 0,
-        "value_type": "individual"
-      },
-      "type": "graph",
-      "xaxis": {
-        "buckets": null,
-        "mode": "time",
-        "name": null,
-        "show": true,
-        "values": []
-      },
-      "yaxes": [
-        {
-          "format": "short",
-          "label": null,
-          "logBase": 1,
-          "max": null,
-          "min": null,
-          "show": true
-        },
-        {
-          "format": "short",
-          "label": null,
-          "logBase": 1,
-          "max": null,
-          "min": null,
-          "show": true
-        }
-      ]
-    },
-    {
-      "aliasColors": {},
-      "bars": false,
-      "dashLength": 10,
-      "dashes": false,
-      "datasource": "${DS_PROMETHEUS_SERVER}",
-      "fill": 1,
-      "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 0,
-        "y": 9
-      },
       "id": 2,
-      "interval": "10s",
       "legend": {
         "avg": false,
         "current": false,
@@ -166,9 +86,8 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(ui_request_count{http_status=~\"^[45].*\"}[1m])",
+          "expr": "histogram_quantile(0.95, sum(rate(ui_request_response_time_bucket[5m])) by (le))",
           "format": "time_series",
-          "hide": false,
           "intervalFactor": 1,
           "refId": "A"
         }
@@ -176,7 +95,7 @@
       "thresholds": [],
       "timeFrom": null,
       "timeShift": null,
-      "title": "UI http Request",
+      "title": "UI HTTP Requests",
       "tooltip": {
         "shared": true,
         "sort": 0,
@@ -210,7 +129,7 @@
       ]
     }
   ],
-  "refresh": false,
+  "refresh": "5s",
   "schemaVersion": 16,
   "style": "dark",
   "tags": [],
@@ -218,8 +137,8 @@
     "list": []
   },
   "time": {
-    "from": "2019-12-09T04:07:43.584Z",
-    "to": "2019-12-09T04:22:43.585Z"
+    "from": "now-15m",
+    "to": "now"
   },
   "timepicker": {
     "refresh_intervals": [
@@ -248,6 +167,6 @@
   },
   "timezone": "",
   "title": "UI_Service_Monitoring",
-  "uid": "QFTfGy-Wk",
-  "version": 4
+  "uid": "x9s6PHiZz",
+  "version": 5
 }
