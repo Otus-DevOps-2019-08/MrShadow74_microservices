@@ -1362,7 +1362,9 @@ production:
     name: production
     url: https://example.com
 ```
+
 * Тепер push без тега версии не будет запускать джобы Staging и Prodaction
+
 * При налии тега будет запускаться полный pipeline
 ```
 git commit -a -m ‘#4 add logout button to profile page’
@@ -1384,7 +1386,7 @@ branch review:
     - branches
   except:
     - master
-``
+```
 
 ## Задание со *
 
@@ -1806,10 +1808,14 @@ Access: Proxy
 ```
 
 ### Дашборды Grafana
+
 * На сайте `https://grafana.com/grafana/dashboards` можно найти и скачать большое
 количество уже созданных официальных и комьюнити дашбордов для визуализации различного типа метрик для разных систем мониторинга и баз данных
+
 * В директории monitoring создадим директории grafana/dashboards, куда поместим скачанный дашборд с именем `DockerMonitoring.json`
+
 * Загрузим JSON для дашборда Docker and system monitoring в директорию grafana/dashboards с именем `DockerMonitoring.json`
+
 * Добавим в файл `prometheus.yml` информацию о post-сервисе
 ```
 - job_name: 'post'
@@ -1817,6 +1823,7 @@ Access: Proxy
     - targets:
     - 'post:5000'
 ```
+
 * И добавим сразу правило в файрвол
 ```
 $ gcloud compute firewall-rules create grafana-post-allow --allow tcp:5000
@@ -1940,7 +1947,17 @@ $ docker-compose -f docker-compose-monitoring.yml up -d
 ```
 $ docker-compose stop post
 ```
+* Прилетел алерт в слак
+* Выгрузить образы в DockerHub
+```
+$ docker login
+$ docker push $USER_NAME/ui
+$ docker push $USER_NAME/comment
+$ docker push $USER_NAME/post
+$ docker push $USER_NAME/prometheus
+$ docker push $USER_NAME/alertmanager
+```
 
-
-
+### Задание со *
+* Добавлены записи в `Makefile` для запуска мониторинга
 

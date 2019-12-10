@@ -1,5 +1,31 @@
 USERNAME = mrshadow74
 
+# Запуск всего мониторинга
+run-all:
+	run-app
+	run-monitor
+
+# Остановка всего мониторинга
+stop-all:
+	stop-app
+	stop-monitor
+
+# Запуск приложений
+run-app:
+	docker-compose up -d
+
+# Запуск мониторинга 
+run-monitor:
+	docker-compose -f docker-compose-monitoring.yml up -d
+
+# Остановка приложений
+stop-app:
+	docker-compose down
+
+# Остановка мониторинга
+stop-monitor:
+	docker-compose -f docker-compose-monitoring.yml down
+
 # Сборка всех образов
 build_all:
 	build_prometheus \
