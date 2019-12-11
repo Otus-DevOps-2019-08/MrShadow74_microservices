@@ -1623,6 +1623,7 @@ https://hub.docker.com/repository/docker/mrshadow74/ui
 ### Добавить в Prometheus мониторинг MongoDB
 
 * Для выполнения задания буду использовать bitnami/mongodb-exporter версии latest. Дополню записью файл `docker-compose.yml`
+
 ```
 mongodb-exporter:
   image: bitnami/mongodb-exporter:latest
@@ -1833,7 +1834,7 @@ $ gcloud compute firewall-rules create grafana-post-allow --allow tcp:5000
 ```
 $ export USER_NAME=mrshadow74
 $ docker build -t $USER_NAME/prometheus .
-``
+```
 
 * Пересоздадим Docker инфраструктуру мониторинга и добавим несколько постов в приложении и несколько комментов, чтобы собрать значения метрик приложения
 ```
@@ -1960,4 +1961,9 @@ $ docker push $USER_NAME/alertmanager
 
 ### Задание со *
 * Добавлены записи в `Makefile` для запуска мониторинга
+
+### Задание с **
+
+
+### Задание с ***
 
