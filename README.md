@@ -4618,7 +4618,7 @@ spec:
 
 * Проверили - все гуд, работает.
 
-* Для чистоты экспиремента выполним всё с нуля
+* Для чистоты эксперимента выполним всё с нуля
 ```
 $ minikube delete && minikube start && kubectl apply -f ./kubernetes/reddit
 
@@ -4765,12 +4765,12 @@ $ minikube service kubernetes-dashboard -n kube-system
 
 ### Dashboard
 * В самом Dashboard можно:
- • отслеживать состояние кластера и рабочих нагрузок в нем
- • создавать новые объекты (загружать YAML-файлы)
- • Удалять и изменять объекты (кол-во реплик, yaml-файлы)
- • отслеживать логи в Pod-ах
- • при включении Heapster-аддона смотреть нагрузку на Pod-ах
- • и т.д.
+ - отслеживать состояние кластера и рабочих нагрузок в нем
+ - создавать новые объекты (загружать YAML-файлы)
+ - Удалять и изменять объекты (кол-во реплик, yaml-файлы)
+ - отслеживать логи в Pod-ах
+ - при включении Heapster-аддона смотреть нагрузку на Pod-ах
+ - и т.д.
 
 ## Minikube. Namespace
 * Используем же namespace в наших целях. Отделим среду для разработки приложения от всего остального кластера. Для этого создадим свой Namespace dev
@@ -4859,12 +4859,126 @@ $ kubectl apply -f ui-deployment.yml -n dev
 deployment.apps/ui configured
 ```
 
+## Разворачиваем Kubernetes
 
+* Мы подготовили наше приложение в локальном окружении. Теперь самое время запустить его на реальном кластере Kubernetes. В качестве основной платформы будем использовать Google Kubernetes Engine.
+* Зайдите в свою gcloud console, перейдите в “kubernetes clusters”, нажмите “создать Cluster”
+* Укажите следующие настройки кластера:
+ - Тип машины - небольшая машина (1,7 ГБ) (для экономии ресурсов)
+ - Размер - 2
+ - Базовая аутентификация - отключена
+ - Устаревшие права доступа - отключено
+ - Панель управления Kubernetes - отключено
+ - Размер загрузочного диска - 20 ГБ (для экономии)
 
+### GCE
+* Компоненты управления кластером запускаются в container engine и управляются Google:
+ - kube-apiserver
+ - kube-scheduler
+ - kube-controller-manager
+ - etcd
+* Рабочая нагрузка (собственные POD-ы), аддоны, мониторинг, логирование и т.д. запускаются на рабочих нодах
+* Рабочие ноды - стандартные ноды Google compute engine. Их можно увидеть в списке запущенных узлов. На них всегда можно зайти по ssh, их можно остановить и запустить.
+* Подключимся к GKE для запуска нашего приложения
+```
+$ gcloud container clusters get-credentials standard-cluster-1 --zone europe-west3-c --project global-incline-258416
+```
+* В результате в файл `~/.kube/config` будут добавлены *user*, *cluster* и *context* для подключения к кластеру в GKE. Также текущий контекст будет выставлен для подключения к этому кластеру. Убедиться можно, введя
+```
+$ kubectl config current-context
+gke_global-incline-258416_europe-west3-c_standard-cluster-1
+```
+* Запустим наше приложение в GKE. Создадим *dev* namespace
+```
+$ kubectl apply -f ./kubernetes/reddit/dev-namespace.yml
+namespace/dev created
+```
 
+* Задеплоим все компоненты приложения в namespace dev
+```
+$ kubectl apply -f ./kubernetes/reddit/ -n dev
+deployment.apps/comment created
+service/comment-db created
+service/comment created
+namespace/dev unchanged
+deployment.apps/mongo created
+service/mongodb created
+deployment.apps/post created
+service/post-db created
+service/post created
+deployment.apps/ui created
+service/ui created
+```
+* Откроем Reddit для внешнего мира, зайдем в “правила брандмауэра”, нажмем “создать правило брандмауэра”
+* Откроем диапазон портов kubernetes для публикации сервисов:
+ - Название - произвольно, но понятно
+ - Целевые экземпляры - все экземпляры в сети
+ - Диапазоны IP-адресов источников - 0.0.0.0/0
+ - Протоколы и порты - Указанные протоколы и порты tcp:30000-32767
+* Найдем внешний IP-адрес любой ноды из кластера либо в веб-консоли, либо External IP в выводе
+```
+$ kubectl get nodes -o wide
+NAME                                                STATUS   ROLES    AGE   VERSION          INTERNAL-IP   EXTERNAL-IP     OS-IMAGE                             KERNEL-VERSION   CONTAINER-RUNTIME
+gke-standard-cluster-1-default-pool-ababd233-mhwg   Ready    <none>   16m   v1.15.4-gke.22   10.156.0.5    34.89.184.112   Container-Optimized OS from Google   4.19.76+         docker://19.3.1
+gke-standard-cluster-1-default-pool-ababd233-wvvg   Ready    <none>   16m   v1.15.4-gke.22   10.156.0.6    34.89.246.216   Container-Optimized OS from Google   4.19.76+         docker://19.3.1
+```
+* Найдем порт публикации сервиса ui
+```
+$ kubectl describe service ui -n dev | grep NodePort
+Type:                     NodePort
+NodePort:                 <unset>  32092/TCP
+```
+* Идем по адресу `http://34.89.184.112:32092/`
+```
+Microservices Reddit in dev ui-555c4746c7-c6n9l container
+```
+* В GKE также можно запустить Dashboard для кластера, нажмем на имя кластера, далее "изменить"
+* В этом меню можно поменять конфигурацию кластера. Нам нужно включить дополнение “Панель управления Kubernetes”.
+* А по факту это грязные инсинуации, так как сделать это в интерфейсе нельзя, нет сейчас такого пункта в меню. В документации кубернетис есть документ `https://kubernetes.io/docs/tasks/access-application-cluster/web-ui-dashboard/` с инструкцией
+* Для включения нужно выполнить следкющую команду
+```
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-beta8/aio/deploy/recommended.yaml
 
+namespace/kubernetes-dashboard created
+serviceaccount/kubernetes-dashboard created
+service/kubernetes-dashboard created
+secret/kubernetes-dashboard-certs created
+secret/kubernetes-dashboard-csrf created
+secret/kubernetes-dashboard-key-holder created
+configmap/kubernetes-dashboard-settings created
+role.rbac.authorization.k8s.io/kubernetes-dashboard created
+clusterrole.rbac.authorization.k8s.io/kubernetes-dashboard created
+rolebinding.rbac.authorization.k8s.io/kubernetes-dashboard created
+clusterrolebinding.rbac.authorization.k8s.io/kubernetes-dashboard created
+deployment.apps/kubernetes-dashboard created
+service/dashboard-metrics-scraper created
+deployment.apps/dashboard-metrics-scraper created
+```
+* Выполним в консоли команду `kubectl proxy`
+```
+Kubectl will make Dashboard available at http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
+```
+* Требуется пройти авторизацию. Пройти ее невозможно, а кнопка Skip из слайда в домашнем заданим отсутствует. Традиционно поиск на stackoverflow дает решение `https://stackoverflow.com/questions/50747783/how-to-access-gke-kubectl-proxy-dashboard`
+```
+Provided you are authenticated with gcloud auth login and the current project and k8s cluster is configured to the one you need, authenticate kubectl to the cluster (this will write ~/.kube/config):
 
+gcloud container clusters get-credentials <cluster name> --zone <zone> --project <project>
+retrieve the auth token that the kubectl itself uses to authenticate as you
 
+gcloud config config-helper --format=json | jq -r '.credential.access_token'
+run
+
+kubectl proxy
+
+Then open a local machine web browser on
+
+http://localhost:8001/api/v1/namespaces/kube-system/services/https:kubernetes-dashboard:/proxy (This will only work if you checked the checkbox Deploy Dashboard in GCP console)
+
+and use the token from the second command to log in with your Google Account's permissions.
+```
+
+* Получаем необходимый нам токен, вводим его и получаем наш dashboard. 
+* Скриншот сохранен ./kubernetes/GCE_screen.png
 
 
 
