@@ -22,4 +22,9 @@ spec:
       containers:
         - image: mrshadow74/ui
           name: ui
+          env:
+          - name: ENV
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
 

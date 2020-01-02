@@ -4676,6 +4676,194 @@ spec:
 
 * Т.е. в описании service NodePort - для доступа снаружи кластера port - для доступа к сервису изнутри кластера.
 
+## Minikube. Dashboard
+
+* Minikube может выдавать web-странцы с сервисами которые были помечены типом NodePort
+```
+$ minikube service ui
+|-----------|------|-------------|-----------------------------|
+| NAMESPACE | NAME | TARGET PORT |             URL             |
+|-----------|------|-------------|-----------------------------|
+| default   | ui   |             | http://192.168.99.100:32092 |
+|-----------|------|-------------|-----------------------------|
+```
+
+* Minikube может перенаправлять на web-странцы с сервисами которые были помечены типом NodePort. Посмотрим на список сервисов
+```
+$ minikube service list
+|-------------|------------|-----------------------------|-----|
+|  NAMESPACE  |    NAME    |         TARGET PORT         | URL |
+|-------------|------------|-----------------------------|-----|
+| default     | comment    | No node port                |
+| default     | comment-db | No node port                |
+| default     | kubernetes | No node port                |
+| default     | post       | No node port                |
+| default     | post-db    | No node port                |
+| default     | ui         | http://192.168.99.100:32092 |
+| kube-system | kube-dns   | No node port                |
+|-------------|------------|-----------------------------|-----|
+```
+
+* Minikube также имеет в комплекте несколько стандартных аддонов (расширений) для Kubernetes (kube-dns, dashboard, monitoring,…). Каждое расширение - это такие же PODы и сервисы, какие создавались нами, только они еще общаются с API самого Kubernetes. Получим список расширений
+```
+$ minikube addons list
+- addon-manager: enabled
+- dashboard: disabled
+- default-storageclass: enabled
+- efk: disabled
+- freshpod: disabled
+- gvisor: disabled
+- helm-tiller: disabled
+- ingress: disabled
+- ingress-dns: disabled
+- logviewer: disabled
+- metrics-server: disabled
+- nvidia-driver-installer: disabled
+- nvidia-gpu-device-plugin: disabled
+- registry: disabled
+- registry-creds: disabled
+- storage-provisioner: enabled
+- storage-provisioner-gluster: disabled
+```
+
+* Интересный аддон - *dashboard*. Это UI для работы с kubernetes. По умолчанию в новых версиях он включен. Как и многие kubernetes add-on'ы, dashboard запускается в виде pod'а. Если мы посмотрим на запущенные pod'ы с помощью команды `kubectl get pods`, то обнаружим только наше приложение.
+* Потому что поды и сервисы для dashboard-а были запущены в namespace (пространстве имен) kube-system. Мы же запросили пространство имен default.
+* *Namespace* - это, по сути, виртуальный кластер Kubernetes внутри самого Kubernetes. Внутри каждого такого кластера находятся свои объекты (POD-ы, Service-ы, Deployment-ы и т.д.), кроме объектов, общих на все namespace-ы (nodes, ClusterRoles, PersistentVolumes). В разных namespace-ах могут находится объекты с одинаковым именем, но в рамках одного namespace имена объектов должны быть уникальны.
+* При старте Kubernetes кластер уже имеет 3 namespace:
+ • default - для объектов для которых не определен другой Namespace (в нем мы работали все это время)
+ • kube-system - для объектов созданных Kubernetes’ом и для управления им
+ • kube-public - для объектов к которым нужен доступ из любой точки кластера
+* Для того, чтобы выбрать конкретное пространство имен, нужно указать флаг *-n <namespace>* или *--namespace <namespace>* при запуске kubectl
+* Так как в нашем случае аддон dashboard выключен, необходимо его включить
+```
+minikube dashboard
+* Enabling dashboard ...
+* Verifying dashboard health ...
+* Launching proxy ...
+* Verifying proxy health ...
+* Opening http://127.0.0.1:37429/api/v1/namespaces/kubernetes-dashboard/services/http:kubernetes-dashboard:/proxy/ in your default browser...
+```
+
+* Найдем же теперь объекты нашего dashboard
+```
+$ kubectl get all -n kube-system --selector k8s-app=kubernetes-dashboard
+NAME READY STATUS RESTARTS AGE
+pod/kubernetes-dashboard-598d75cb96-vnntk 1/1 Running 0 1h
+NAME TYPE CLUSTER-IP EXTERNAL-IP PORT(S) AGE
+service/kubernetes-dashboard ClusterIP 10.55.244.13 <none> 443/TCP 1h
+NAME DESIRED CURRENT UP-TO-DATE AVAILABLE AGE
+deployment.apps/kubernetes-dashboard 1 1 1 1 1h
+NAME DESIRED CURRENT READY AGE
+replicaset.apps/kubernetes-dashboard-598d75cb96 1 1 1 1h
+```
+
+* Мы вывели все объекты из неймспейса kube-system, имеющие label app=kubernetes-dashboard
+* Зайдем в Dashboard
+```
+$ minikube service kubernetes-dashboard -n kube-system
+```
+
+### Dashboard
+* В самом Dashboard можно:
+ • отслеживать состояние кластера и рабочих нагрузок в нем
+ • создавать новые объекты (загружать YAML-файлы)
+ • Удалять и изменять объекты (кол-во реплик, yaml-файлы)
+ • отслеживать логи в Pod-ах
+ • при включении Heapster-аддона смотреть нагрузку на Pod-ах
+ • и т.д.
+
+## Minikube. Namespace
+* Используем же namespace в наших целях. Отделим среду для разработки приложения от всего остального кластера. Для этого создадим свой Namespace dev
+```
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+name: dev
+
+$ kubectl apply -f dev-namespace.yml
+namespace/dev created
+
+$ kubectl get namespace
+NAME                   STATUS   AGE
+default                Active   135m
+dev                    Active   30s
+kube-node-lease        Active   135m
+kube-public            Active   135m
+kube-system            Active   135m
+kubernetes-dashboard   Active   5m20s
+```
+
+* Запустим приложение в dev неймспейсе
+```
+$ kubectl apply -n dev -f .
+deployment.apps/comment created
+service/comment-db created
+service/comment created
+namespace/dev unchanged
+deployment.apps/mongo created
+service/mongodb created
+deployment.apps/post created
+service/post-db created
+service/post created
+deployment.apps/ui created
+service/ui created
+```
+
+* Смотрим результат:
+```
+$ minikube service ui -n dev
+|-----------|------|-------------|-----------------------------|
+| NAMESPACE | NAME | TARGET PORT |             URL             |
+|-----------|------|-------------|-----------------------------|
+| dev       | ui   |             | http://192.168.99.100:32092 |
+|-----------|------|-------------|-----------------------------|
+```
+
+* Добавим инфу об окружении внутрь контейнера UI `ui-deployment.yml`
+```
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui
+  labels:
+    app: reddit
+    component: ui
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: reddit
+      component: ui
+  template:
+    metadata:
+      name: ui-pod
+      labels:
+        app: reddit
+        component: ui
+    spec:
+      containers:
+        - image: mrshadow74/ui
+          name: ui
+          env:
+          - name: ENV
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+```
+
+* И применим изменения
+```
+$ kubectl apply -f ui-deployment.yml -n dev
+deployment.apps/ui configured
+```
+
+
+
+
+
+
 
 
 
