@@ -20,6 +20,9 @@ spec:
         component: comment
     spec:
       containers:
-      - image: mrshadow74/comment
-        name: comment
+        - image: mrshadow74/comment
+          name: comment
+          env:
+            - name: COMMENT_DATABASE_HOST
+              value: comment-db
 

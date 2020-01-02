@@ -4460,6 +4460,223 @@ NAME                     READY   STATUS    RESTARTS   AGE
 mongo-7fb8945897-cxlck   1/1     Running   0          3m24s
 ```
 
+## Services
+* В текущем состоянии приложение не будет работать, так его компоненты ещё не знают как найти друг друга. Для связи компонент между собой и с внешним миром используется объект Service - абстракция, которая определяет набор POD-ов (Endpoints) и способ доступа к ним.
+* Для связи ui с post и comment нужно создать им по объекту Service.
+* Когда объект service будет создан:
+ - В DNS появится запись для comment
+ - При обращении на адрес post:9292 изнутри любого из POD-ов текущего namespace нас переправит на 9292-ный порт одного из POD-ов приложения post, выбранных по label-ам
+* По label-ам должны были быть найдены соответствующие POD-ы. Посмотреть можно с помощью
+```
+$ kubectl apply -f comment-service.yml
+service/comment created
+
+$ kubectl describe service comment | grep Endpoints
+Endpoints:         172.17.0.10:9292,172.17.0.11:9292,172.17.0.2:9292
+```
+
+* А изнутри любого POD-а должно разрешаться
+```
+$ kubectl exec -ti post-7cfbfc5d47-6xnvb nslookup comment
+
+nslookup: can't resolve '(null)': Name does not resolve
+
+Name:      comment
+Address 1: 10.96.38.17 comment.default.svc.cluster.local
+```
+
+* По аналогии создадим объект Service в файле `postservice.yml` для компонента `post` (и не забудем про label-ы и правильные tcp-порты).
+```
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: post
+  labels:
+    app: reddit
+    component: post
+spec:
+  ports:
+  - port: 9292
+    protocol: TCP
+    targetPort: 5000
+  selector:
+    app: reddit
+    component: post
+```
+
+* После команды `kubectl apply -f post-service.yml` minikube перестал отвечать на запросы.
+```
+Unable to connect to the server: net/http: TLS handshake timeout
+```
+* Делаем ему рестарт для приведения в чувства
+```
+$ minikube stop
+$ minikube start
+$ kubectl get componentstatuses
+
+$ kubectl apply -f post-service.yml
+service/post created
+```
+
+* Post и Comment также используют mongodb, следовательно ей тоже нужен объект Service
+```
+$ kubectl apply -f mongodb-service.yml
+service/mongodb created
+```
+
+* Пробрасываем порт UI `kubectl port-forward ui-68766dc77-2n6ks 9292:9292` и проверяем работу
+* Приложение при открытии уходит в себя и о чем-то думает. По итогу открывается с ошибкой `Can't show blog posts, some problems with the post service.`
+
+* Посмотрим логи, например, comment `kubectl logs comment-6b99d97f-2nm6z`
+```
+Puma starting in single mode...
+* Version 3.12.0 (ruby 2.2.10-p489), codename: Llamas in Pajamas
+* Min threads: 0, max threads: 16
+* Environment: development
+* Listening on tcp://0.0.0.0:9292
+Use Ctrl-C to stop
+I, [2020-01-02T05:11:31.213152 #1]  INFO -- : service=comment | event=request | path=/healthcheck
+request_id=null | remote_addr=172.17.0.4 | method= GET | response_status=200
+I, [2020-01-02T05:11:31.258181 #1]  INFO -- : service=comment | event=request | path=/healthcheck
+request_id=null | remote_addr=172.17.0.8 | method= GET | response_status=200
+I, [2020-01-02T05:11:33.273550 #1]  INFO -- : service=comment | event=request | path=/healthcheck
+request_id=null | remote_addr=172.17.0.8 | method= GET | response_status=200
+I, [2020-01-02T05:11:35.528716 #1]  INFO -- : service=comment | event=request | path=/healthcheck
+request_id=null | remote_addr=172.17.0.6 | method= GET | response_status=200
+I, [2020-01-02T05:11:39.728725 #1]  INFO -- : service=comment | event=request | path=/healthcheck
+request_id=null | remote_addr=172.17.0.4 | method= GET | response_status=200
+I, [2020-01-02T05:11:40.286765 #1]  INFO -- : service=comment | event=request | path=/healthcheck
+request_id=null | remote_addr=172.17.0.6 | method= GET | response_status=200
+```
+* Сообщений, как в методичке домашнего задания, нет от слова "совсем". Уровень отладки в моём варианте явно отличается от задания. Либо так задумано, либо где-то вкралась очепятка.
+* В тексте `/src/comment/comment_app.rb` уровень логирования в моем случае задан на уровне `WARN`, в методичке же явно виден `DEBUG`. Попробуем поправить, и заодно уберу тэг `logging` от предыдущего задания, мы ведь его сейчас в задании не используем.
+
+
+* В логах приложение ищет совсем другой адрес: comment_db, а не mongodb. Аналогично и сервис comment ищет post_db. Эти адреса заданы в их Dockerfile-ах в виде переменных окружения
+```
+post/Dockerfile
+…
+ENV POST_DATABASE_HOST=post_db
+comment/Dockerfile
+…
+ENV COMMENT_DATABASE_HOST=comment_db
+```
+
+* В Docker Swarm проблема доступа к одному ресурсу под разными именами решалась с помощью сетевых алиасов. В Kubernetes такого функционала нет. Мы эту проблему можем решить с помощью тех же Service-ов.
+
+* Сделаем файл Service для БД comment
+```
+wget https://raw.githubusercontent.com/express42/otus-snippets/e7b0bc08c47a77709d313cfcbbaa3f9ed4b19340/k8s-controllers/comment-mongodb-service.yml
+```
+
+* Так же придется обновить файл deployment для mongodb, чтобы новый Service смог найти нужный POD
+```
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo
+  labels:
+    app: reddit
+    component: mongo
+    comment-db: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reddit
+      component: mongo
+  template:
+    metadata:
+      name: mongo
+      labels:
+        app: reddit
+        component: mongo
+        comment-db: "true"
+    spec:
+      containers:
+        - image: mongo:3.2
+          name: mongo
+          volumeMounts:
+          - name: mongo-persistent-storage
+            mountPath: /data/db
+      volumes:
+        - name: mongo-persistent-storage
+          emptyDir: {}
+```
+* Зададим pod-ам comment переменную окружения для обращения к базе
+```
+        env:
+        - name: COMMENT_DATABASE_HOST
+          value: comment-db
+```
+
+* Мы сделали базу доступной для comment. Проделаем аналогичные же действия для post-сервиса. Название сервиса должно быть post-db.
+
+* После этого снова сделаем port-forwarding на UI и убедимся, что приложение запустилось без ошибок и посты создаются.
+
+* Проверили - все гуд, работает.
+
+* Для чистоты экспиремента выполним всё с нуля
+```
+$ minikube delete && minikube start && kubectl apply -f ./kubernetes/reddit
+
+$ kubectl get pod
+NAME                     READY   STATUS    RESTARTS   AGE
+comment-6b99d97f-2nm6z   1/1     Running   0          9m52s
+comment-6b99d97f-9vmm5   1/1     Running   0          9m52s
+comment-6b99d97f-z4tvb   1/1     Running   0          9m52s
+mongo-6fbb94b746-srcv4   1/1     Running   0          9m52s
+post-f48875b9-4m9b7      1/1     Running   0          9m52s
+post-f48875b9-4p8rn      1/1     Running   0          9m52s
+post-f48875b9-qvxl5      1/1     Running   0          9m52s
+ui-68766dc77-5pj6l       1/1     Running   0          9m51s
+ui-68766dc77-62d58       1/1     Running   0          9m51s
+ui-68766dc77-lslt6       1/1     Running   0          9m51s
+
+$ kubectl get service
+NAME         TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)     AGE
+comment      ClusterIP   10.96.16.89     <none>        9292/TCP    26s
+comment-db   ClusterIP   10.96.228.91    <none>        27017/TCP   26s
+kubernetes   ClusterIP   10.96.0.1       <none>        443/TCP     25m
+mongodb      ClusterIP   10.96.197.125   <none>        27017/TCP   26s
+post         ClusterIP   10.96.251.146   <none>        5000/TCP    25s
+post-db      ClusterIP   10.96.113.2     <none>        27017/TCP   26s
+```
+
+* Удалим объект mongodb-service `$ kubectl delete -f mongodb-service.yml` или `$ kubectl delete service mongodb`
+```
+service "mongodb" deleted
+```
+
+* Нам нужно как-то обеспечить доступ к ui-сервису снаружи. Для этого нам понадобится Service для UI-компоненты
+```
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui
+  labels:
+    app: reddit
+    component: ui
+spec:
+  type: NodePort
+  ports:  
+  - nodePort: 32092
+    port: 9292
+    protocol: TCP
+    targetPort: 9292
+  selector:
+    app: reddit
+    component: ui
+```
+
+* По-умолчанию все сервисы имеют тип ClusterIP - это значит, что сервис распологается на внутреннем диапазоне IP-адресов кластера. Снаружи до него нет доступа. Тип NodePort - на каждой ноде кластера открывает порт из диапазона 30000-32767 и переправляет трафик с этого порта на тот, который указан в targetPort Pod (похоже на стандартный expose в docker). Теперь до сервиса можно дойти по `<Node-IP>:<NodePort>`. Также можно указать самим NodePort (но все равно из диапазона)
+
+* Т.е. в описании service NodePort - для доступа снаружи кластера port - для доступа к сервису изнутри кластера.
+
+
 
 
 

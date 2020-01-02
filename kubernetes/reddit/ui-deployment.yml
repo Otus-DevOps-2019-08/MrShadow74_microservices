@@ -20,5 +20,6 @@ spec:
         component: ui
     spec:
       containers:
-      - image: mrshadow74/ui
-        name: ui
+        - image: mrshadow74/ui
+          name: ui
+
