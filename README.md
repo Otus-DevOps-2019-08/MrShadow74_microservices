@@ -4980,10 +4980,92 @@ and use the token from the second command to log in with your Google Account's p
 * Получаем необходимый нам токен, вводим его и получаем наш dashboard. 
 * Скриншот сохранен ./kubernetes/GCE_screen.png
 
+## Задание со *
 
+### Развернуть Kubenetes-кластер в GKE с помощью Terraform модуля
 
+* Для решения данной задачи буду использовать *Terraform Kubernetes Engine Module* `https://github.com/terraform-google-modules/terraform-google-kubernetes-engine`
+* Созданы файл инфраструктуры terraform в каталоге `./kubernetes/Additional_task/terraform/`
 
+* Сформированы файлы инфраструктуры terraform: `main.tf`, `output.tf`, `variable.tf`
+* После выполнения `terraform plan && terraform aply` подключим кластер и проверим результат построения инфраструктуры
+```
+$ gcloud container clusters get-credentials kube-gke-test-cluster --region europe-west3 --project global-incline-258416
 
+$ kubectl cluster-info
+Kubernetes master is running at https://35.198.119.208
+calico-typha is running at https://35.198.119.208/api/v1/namespaces/kube-system/services/calico-typha:calico-typha/proxy
+GLBCDefaultBackend is running at https://35.198.119.208/api/v1/namespaces/kube-system/services/default-http-backend:http/proxy
+Heapster is running at https://35.198.119.208/api/v1/namespaces/kube-system/services/heapster/proxy
+KubeDNS is running at https://35.198.119.208/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+Metrics-server is running at https://35.198.119.208/api/v1/namespaces/kube-system/services/https:metrics-server:/proxy
+```
 
+* Посмотрим информацию о нодах
+```
+$ kubectl get nodes -o wide
+NAME                                                  STATUS   ROLES    AGE   VERSION          INTERNAL-IP   EXTERNAL-IP     OS-IMAGE                             KERNEL-VERSION   CONTAINER-RUNTIME
+gke-kube-gke-test-cl-default-node-poo-32f818e2-lxhk   Ready    <none>   11m   v1.15.4-gke.22   10.156.0.9    35.246.131.14   Container-Optimized OS from Google   4.19.76+         docker://19.3.1
+gke-kube-gke-test-cl-default-node-poo-38f088ca-lrbs   Ready    <none>   11m   v1.15.4-gke.22   10.156.0.8    34.89.246.216   Container-Optimized OS from Google   4.19.76+         docker://19.3.1
+gke-kube-gke-test-cl-default-node-poo-f40a3b42-lx5n   Ready    <none>   11m   v1.15.4-gke.22   10.156.0.7    34.89.184.112   Container-Optimized OS from Google   4.19.76+         docker://19.3.1
+```
 
+* Создадим окружение dev
+$ kubectl apply -f ./kubernetes/reddit/dev-namespace.yml
+
+* Развернем наше приложение
+```
+$ kubectl apply -f ./kubernetes/reddit/ -n dev
+```
+
+* Посмотрим перечень созданных нод
+```
+$ kubectl get nodes -n dev
+NAME                                                  STATUS   ROLES    AGE   VERSION
+gke-kube-gke-test-cl-default-node-poo-32f818e2-lxhk   Ready    <none>   11m   v1.15.4-gke.22
+gke-kube-gke-test-cl-default-node-poo-38f088ca-lrbs   Ready    <none>   11m   v1.15.4-gke.22
+gke-kube-gke-test-cl-default-node-poo-f40a3b42-lx5n   Ready    <none>   11m   v1.15.4-gke.22
+```
+
+* Посмотрим список подов
+```
+$ kubectl get pod -n dev
+NAME                       READY   STATUS    RESTARTS   AGE
+comment-744bbdc5cc-6rfqk   1/1     Running   0          17m
+comment-744bbdc5cc-7n7pw   1/1     Running   0          17m
+comment-744bbdc5cc-88hpw   1/1     Running   0          17m
+mongo-7f5c49d9b4-vg5k5     1/1     Running   0          17m
+post-7cf6db88ff-7n5sd      1/1     Running   0          17m
+post-7cf6db88ff-blwvm      1/1     Running   0          17m
+post-7cf6db88ff-fn2vw      1/1     Running   0          17m
+ui-555c4746c7-4zx7t        1/1     Running   0          17m
+ui-555c4746c7-9tgzf        1/1     Running   0          17m
+ui-555c4746c7-cw9t2        1/1     Running   0          17m
+```
+
+* Проверяем в разрезе приложений и сервисов
+```
+$ kubectl -n dev get deployments
+NAME      READY   UP-TO-DATE   AVAILABLE   AGE
+comment   3/3     3            3           22m
+mongo     1/1     1            1           22m
+post      3/3     3            3           22m
+ui        3/3     3            3           22m
+
+$ kubectl -n dev get services
+NAME         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)          AGE
+comment      ClusterIP   10.0.3.191   <none>        9292/TCP         24m
+comment-db   ClusterIP   10.0.9.134   <none>        27017/TCP        24m
+mongodb      ClusterIP   10.0.14.51   <none>        27017/TCP        24m
+post         ClusterIP   10.0.11.72   <none>        5000/TCP         24m
+post-db      ClusterIP   10.0.2.61    <none>        27017/TCP        24m
+ui           NodePort    10.0.14.0    <none>        9292:32092/TCP   24m
+```
+
+* Проверяем наше приложение `http://35.246.131.14:32092/` - все открывается, работает.
+
+### Создать YAML-манифесты для описания созданных сущностей для включения dashboard
+
+* Для выполнения данного задания использован YAML-манифест `https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-beta8/aio/deploy/recommended.yaml`. Данный манифест выполняет полный набор операций для активации дашборда кубернетис.
+* Файл сохранен `./kubernetes/Additional_task/k8s_dashboard_create.yaml`
 
