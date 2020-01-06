@@ -5425,5 +5425,225 @@ ui-ingress            kubernetes.io/tls                     2      22s
 ```
 * Откроем наше приложение в браузере - всё хорошо работает.
 
+## Network Policy
+* В прошлых проектах мы договорились о том, что хотелось бы разнести сервисы базы данных и сервис фронтенда по разным сетям, сделав их недоступными друг для друга.
+* В Kubernetes у нас так сделать не получится с помощью отдельных сетей, так как все POD-ы могут достучаться друг до друга по-умолчанию.
+* Мы будем использовать *NetworkPolicy* - инструмент для декларативного описания потоков трафика. Отметим, что не все сетевые плагины поддерживают политики сети. В частности, у GKE эта функция пока в Beta-тесте и для её работы отдельно будет включен сетевой плагин *Calico* (вместо *Kubenet*). Его мы и протеструем.
+* Наша задача - ограничить трафик, поступающий на *mongodb* отовсюду, кроме сервисов post и comment.
+* Найдите имя кластера
+```
+$ gcloud beta container clusters list
+NAME       LOCATION        MASTER_VERSION  MASTER_IP     MACHINE_TYPE  NODE_VERSION   NUM_NODES  STATUS
+kuber-gke  europe-west3-b  1.15.4-gke.22   34.89.253.47  g1-small      1.15.4-gke.22  3          RECONCILING
+```
+* Включим network-policy для GKE
+```
+$ gcloud beta container clusters update kuber-gke --zone=europe-west3-b --update-addons=NetworkPolicy=ENABLED
+Updating kuber-gke...done.
+Updated [https://container.googleapis.com/v1beta1/projects/global-incline-258416/zones/europe-west3-b/clusters/kuber-gke].
+To inspect the contents of your cluster, go to: https://console.cloud.google.com/kubernetes/workload_/gcloud/europe-west3-b/kuber-gke?project=global-incline-258416
+
+$ gcloud beta container clusters update kuber-gke --zone=europe-west3-b --enable-network-policy
+Enabling/Disabling Network Policy causes a rolling update of all
+cluster nodes, similar to performing a cluster upgrade.  This
+operation is long-running and will block other operations on the
+cluster (including delete) until it has run to completion.
+
+Do you want to continue (Y/n)?  y
+
+Updating kuber-gke...done.
+Updated [https://container.googleapis.com/v1beta1/projects/global-incline-258416/zones/europe-west3-b/clusters/kuber-gke].
+To inspect the contents of your cluster, go to: https://console.cloud.google.com/kubernetes/workload_/gcloud/europe-west3-b/kuber-gke?project=global-incline-258416
+```
+
+* Дождемся, пока кластер обновится. Может быть предложено добавить beta-функционал в gcloud - нажмем yes.
+
+* Создадим файл `mongo-network-policy.yml`
+```
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-db-traffic
+  labels:
+    app: reddit
+spec:
+  podSelector:
+    matchLabels:
+      app: reddit
+      component: mongo
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: reddit
+          component: comment
+```
+
+* Применяем политику и проверим работу приложения
+```
+$ kubectl apply -f mongo-network-policy.yml -n dev
+networkpolicy.networking.k8s.io/deny-db-traffic created
+
+$ kubectl describe networkpolicies deny-db-traffic -n dev
+Name:         deny-db-traffic
+Namespace:    dev
+Created on:   2020-01-06 16:31:40 +0500 +05
+Labels:       app=reddit
+Annotations:  kubectl.kubernetes.io/last-applied-configuration:
+                {"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"annotations":{},"labels":{"app":"reddit"},"name":"deny-db-traffic...
+Spec:
+  PodSelector:     app=reddit,component=mongo
+  Allowing ingress traffic:
+    To Port: <any> (traffic allowed to all ports)
+    From:
+      PodSelector: app=reddit,component=comment
+    ----------
+    To Port: <any> (traffic allowed to all ports)
+    From:
+      PodSelector: app=reddit,component=post
+  Not affecting egress traffic
+  Policy Types: Ingress
+
+```
+* По тексту задания должны получить ошибку доступа сервиса post - ее мы и получили. Теперь нужно дополнить правила `mongo-network-policy.yml, чтобы все заработало.
+```
+  - from:
+    - podSelector:
+        matchLabels:
+          app: reddit
+          component: post
+```
+* Проверяем - теперь все хорошо, работает.
+
+### Хранилище для базы
+
+* Рассмотрим вопросы хранения данных. Основной Stateful сервис в нашем приложении - это база данных MongoDB. В текущий момент она запускается в виде Deployment и хранит данные в стаднартный Docker Volume-ах. Это имеет несколько проблем:
+ - при удалении POD-а удаляется и Volume
+ - потеря Nod’ы с mongo грозит потерей данных
+ - запуск базы на другой ноде запускает новый экземпляр данных.
+
+* Создадим файл `mongo-deployment.yml`
+```
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: mongo
+  labels:
+    app: reddit
+    component: mongo
+    post-db: "true"
+    comment-db: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reddit
+      component: mongo
+  template:
+    metadata:
+      name: mongo
+      labels:
+        app: reddit
+        component: mongo
+        post-db: "true"
+        comment-db: "true"
+    spec:
+      containers:
+      - image: mongo:3.2
+        name: mongo
+        volumeMounts:
+        - name: mongo-persistent-storage
+          mountPath: /data/db
+      volumes:
+      - name: mongo-persistent-storage
+        emptyDir: {}
+```
+
+* Сейчас используется тип Volume *emptyDir*. При создании пода с таким типом просто создается пустой docker volume. При остановке POD’a содержимое emtpyDir удалится навсегда. Хотя в общем случае падение POD’a не вызывает удаления Volume’a. Задание:
+ - создадм пост в приложении
+ - удалим deployment для mongo
+ - создам его заново.
+
+* Пост создан, удалим деплоймент `kubectl delete -f mongo-deployment.yml -n dev`, создадим его заново `kubectl apply -f mongo-deployment.yml -n dev`. Созданный пост в результате данных действий пропал.
+
+* Вместо того, чтобы хранить данные локально на ноде, имеет смысл подключить удаленное хранилище. В нашем случае можем использовать Volume gcePersistentDisk, который будет складывать данные в хранилище GCE.
+
+* Создадим диск в Google Cloud.
+```
+$ gcloud compute disks create --size=25GB --zone=europe-west3-b reddit-mongo-disk
+WARNING: You have selected a disk size of under [200GB]. This may result in poor I/O performance. For more information, see: https://developers.google.com/compute/docs/disks#performance.
+Created [https://www.googleapis.com/compute/v1/projects/global-incline-258416/zones/europe-west3-b/disks/reddit-mongo-disk].
+NAME               ZONE            SIZE_GB  TYPE         STATUS
+reddit-mongo-disk  europe-west3-b  25       pd-standard  READY
+
+New disks are unformatted. You must format and mount a disk before it
+can be used. You can find instructions on how to do this at:
+
+https://cloud.google.com/compute/docs/disks/add-persistent-disk#formatting
+```
+
+* Добавим новый Volume POD-у базы
+```
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: mongo
+  labels:
+    app: reddit
+    component: mongo
+    post-db: "true"
+    comment-db: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reddit
+      component: mongo
+  template:
+    metadata:
+      name: mongo
+      labels:
+        app: reddit
+        component: mongo
+        post-db: "true"
+        comment-db: "true"
+    spec:
+      containers:
+      - image: mongo:3.2
+        name: mongo
+        volumeMounts:
+        - name: mongo-gce-pd-storage
+          mountPath: /data/db
+      volumes:
+      - name: mongo-persistent-storage
+        emptyDir: {}
+        volumes:
+      - name: mongo-gce-pd-storage
+        gcePersistentDisk:
+          pdName: reddit-mongo-disk
+          fsType: ext4
+```
+
+* Cмонтируем выделенный диск к POD’у mongo
+```
+$ kubectl apply -f mongo-deployment.yml -n dev
+```
+* Дождитесь, пересоздания Pod'а (занимает до 10 минут). Зайдем в приложение и добавим пост. А потом пересоздадим деплоймент mongo и проверим сохранность поста. Он, собственно, и на месте, как должно быть.
+
+
+
+
+
+
+
+
+
+
+
 
 
