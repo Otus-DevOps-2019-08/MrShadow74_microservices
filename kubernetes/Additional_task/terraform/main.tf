@@ -15,7 +15,7 @@
  */
 
 locals {
-  cluster_type = "kube-gke-test"
+  cluster_type = "kube-gke"
 }
 
 provider "google" {

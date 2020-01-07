@@ -20,6 +20,7 @@ variable "project_id" {
 
 variable "cluster_name_suffix" {
   description = "A suffix to append to the default cluster name"
+  default     = ""
 }
 
 variable "region" {
