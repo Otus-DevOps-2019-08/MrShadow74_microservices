@@ -5840,4 +5840,202 @@ reddit-mongo-disk                          25Gi       RWO            Retain     
 ```
 * На созданные Kubernetes'ом диски можно посмотреть в web-консоли `https://console.cloud.google.com/compute/disks`
 
+# CI/CD в Kubernetes
+
+* План
+	Работа с Helm
+	Развертывание Gitlab в Kubernetes
+	Запуск CI/CD конвейера в Kubernetes
+
+## Helm
+
+*Helm* - пакетный менеджер для Kubernetes.
+С его помощью мы будем:
+ 1. Стандартизировать поставку приложения в Kubernetes
+ 2. Декларировать инфраструктуру
+ 3. Деплоить новые версии приложения
+
+Helm - клиент-серверное приложение. Установим его клиентскую часть - консольный клиент Helm. Из репозитория возьмем последнюю редакцию 2.16.1 из 2 версии
+```
+wget https://get.helm.sh/helm-v2.16.1-linux-amd64.tar.gz
+cp helm /usr/local/bin
+```
+
+Helm читает конфигурацию kubectl (~/.kube/config) и сам определяет текущий контекст (кластер, пользователь, неймспейс). Если хотим сменить кластер, то либо меняем контекст с помощью `kubectl config set-context` либо подгружайте helm’у собственный config-файл флагом --kube-context.
+
+
+* Установим серверную часть Helm’а - Tiller. Tiller - это аддон Kubernetes, т.е. Pod, который общается с API Kubernetes. Для этого понадобится ему выдать ServiceAccount и назначить роли RBAC, необходимые для работы.
+
+* Создадим файл `tiller.yml` и поместите в него yaml-манифест
+```
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tiller
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: tiller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: tiller
+    namespace: kube-system
+```
+
+Применим созданный манифест
+```
+$ kubectl apply -f tiller.yml
+serviceaccount/tiller created
+clusterrolebinding.rbac.authorization.k8s.io/tiller created
+```
+
+Теперь запустим tiller-сервер
+```
+$ helm init --service-account tiller
+Creating /home/eaa/.helm
+Creating /home/eaa/.helm/repository
+Creating /home/eaa/.helm/repository/cache
+Creating /home/eaa/.helm/repository/local
+Creating /home/eaa/.helm/plugins
+Creating /home/eaa/.helm/starters
+Creating /home/eaa/.helm/cache/archive
+Creating /home/eaa/.helm/repository/repositories.yaml
+Adding stable repo with URL: https://kubernetes-charts.storage.googleapis.com
+Adding local repo with URL: http://127.0.0.1:8879/charts
+$HELM_HOME has been configured at /home/eaa/.helm.
+
+Tiller (the Helm server-side component) has been installed into your Kubernetes Cluster.
+
+Please note: by default, Tiller is deployed with an insecure 'allow unauthenticated users' policy.
+To prevent this, run `helm init` with the --tiller-tls-verify flag.
+For more information on securing your installation see: https://docs.helm.sh/using_helm/#securing-your-helm-installation
+```
+
+Проверим, что получилось
+```
+$ kubectl get pods -n kube-system --selector app=helm
+NAME                             READY   STATUS    RESTARTS   AGE
+tiller-deploy-54f7455d59-ws6sn   1/1     Running   0          60s
+```
+
+### Charts
+* Chart - это пакет в Helm. Создадим директорию Charts в папке kubernetes со следующей структурой директорий
+
+├── Charts
+    ├── comment
+    ├── post
+    ├── reddit
+    └── ui
+
+* Начнем разработку *Chart*’а для компонента *ui* приложения. Создадим файл-описание chart’а. Helm предпочитает *.yaml*
+```
+name: ui
+version: 1.0.0
+description: OTUS reddit application UI
+maintainers:
+  - name: Someone
+    email: my@mail.com
+appVersion: 1.0
+```
+
+Реально значимыми являются поля name и version. От них зависит работа Helm’а с Chart’ом. Остальное - описания.
+
+### Templates
+
+* Основным содержимым Chart’ов являются шаблоны манифестов Kubernetes.
+	1. Создадим директорию ui/templates
+	2. Перенесем в неё все манифесты, разработанные ранее для сервиса ui (ui-service, ui-deployment, ui-ingress)
+	3. Переименем их (уберем префикс “ui-“) и поменяем расширение на .yaml) - стилистические правки
+
+└── ui
+ ├── Chart.yaml
+ ├── templates
+ │   ├── deployment.yaml
+ │   ├── ingress.yaml
+ │   └── service.yaml
+
+* По-сути, это уже готовый пакет для установки в Kubernetes
+	1. Убедитесь, что у вас не развернуты компоненты приложения в kubernetes. Если развернуты - удалите их
+	2. Установим Chart
+```
+$ helm install --name test-ui-1 ui/
+NAME:   test-ui-1
+LAST DEPLOYED: Wed Jan  8 15:16:24 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+
+RESOURCES:
+==> v1/Deployment
+NAME  AGE
+ui    1s
+
+==> v1/Pod(related)
+NAME                 AGE
+ui-555c4746c7-8t7sq  1s
+ui-555c4746c7-9nr6k  1s
+ui-555c4746c7-rhs9z  1s
+
+==> v1/Service
+NAME  AGE
+ui    1s
+
+==> v1beta1/Ingress
+NAME  AGE
+ui    1s
+```
+Передаем имя и путь до Chart'a соответсвенно
+
+	3. Посмотрим, что получилось
+```
+$ helm ls
+NAME            REVISION        UPDATED                         STATUS          CHART           APP VERSION     NAMESPACE
+test-ui-1       1               Wed Jan  8 15:16:24 2020        DEPLOYED        ui-1.0.0        1               default
+```
+
+* Теперь необходимо сделать так, чтобы можно было использовать Chart №1 для запуска нескольких экземпляров (релизов). Шаблонизируем `ui/templates/service.yaml`
+```
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-{{ .Chart.Name }}
+  labels:
+    app: reddit
+    component: ui
+    release: {{ .Release.Name }}
+spec:
+  type: NodePort
+  ports:
+  - port: 9292
+    protocol: TCP
+    targetPort: 9292
+  selector:
+    app: reddit
+    component: ui
+    release: {{ .Release.Name }}
+```
+
+name: {{ .Release.Name }}-{{ .Chart.Name }} Здесь мы используем встроенные переменные
+.Release - группа переменных с информацией о релизе (конкретном запуске Chart’а в k8s)
+.Chart - группа переменных с информацией о Chart’е (содержимое файла Chart.yaml)
+Также еще есть группы переменных:
+.Template - информация о текущем шаблоне ( .Name и .BasePath)
+.Capabilities - информация о Kubernetes (версия, версии API)
+.Files.Get - получить содержимое файла
+
+* Шаблонизируем подобным образом остальные сущности `ui/templates/deployment.yaml`
+
+
+
+
+
+
+
 
