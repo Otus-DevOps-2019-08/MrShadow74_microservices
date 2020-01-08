@@ -6092,13 +6092,190 @@ spec:
           servicePort: 9292
 ```
 
+* Установим несколько релизов ui
+```
+$ helm install --name test-ui-2 ui/
+NAME:   test-ui-2
+LAST DEPLOYED: Wed Jan  8 19:18:57 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+
+RESOURCES:
+==> v1/Pod(related)
+NAME                           AGE
+test-ui-2-ui-5675c86955-l4vzw  1s
+test-ui-2-ui-5675c86955-wbdqq  1s
+test-ui-2-ui-5675c86955-xlvh8  1s
+
+==> v1/Service
+NAME          AGE
+test-ui-2-ui  1s
+
+==> v1beta1/Deployment
+NAME          AGE
+test-ui-2-ui  1s
+
+==> v1beta1/Ingress
+NAME          AGE
+test-ui-2-ui  1s
+
+$ helm install --name test-ui-3 ui/
+NAME:   test-ui-3
+LAST DEPLOYED: Wed Jan  8 19:19:06 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+
+RESOURCES:
+==> v1/Pod(related)
+NAME                           AGE
+test-ui-3-ui-7dd6979644-mxnmz  1s
+test-ui-3-ui-7dd6979644-xjnzp  1s
+test-ui-3-ui-7dd6979644-xwqpg  1s
+
+==> v1/Service
+NAME          AGE
+test-ui-3-ui  1s
+
+==> v1beta1/Deployment
+NAME          AGE
+test-ui-3-ui  1s
+
+==> v1beta1/Ingress
+NAME          AGE
+test-ui-3-ui  1s
+```
+
+В результате мы должны получить 3 ingress'а
+```
+$ kubectl get ingress
+NAME           HOSTS   ADDRESS         PORTS     AGE
+test-ui-1-ui   *                       80        17s
+test-ui-2-ui   *       35.190.64.129   80        5m6s
+test-ui-3-ui   *       34.107.216.76   80        4m57s
+ui             *                       80, 443   4h7m
+```
+Видимо оставалось наследие, попробуем почистить и пересоздать
+```
+$ helm del --purge test-ui-1
+release "test-ui-1" deleted
+
+$ helm install --name test-ui-1 ui/
+
+$ kubectl get ingress
+NAME           HOSTS   ADDRESS          PORTS   AGE
+test-ui-1-ui   *       34.107.242.208   80      3m16s
+test-ui-2-ui   *       35.190.64.129    80      8m5s
+test-ui-3-ui   *       34.107.216.76    80      7m56s
+```
+
+* По IP-адресам можно попасть на разные релизы ui-приложений. Необхидмо подождать пару минут после выполнения команды, пока ingress’ы станут доступными
+
+* Мы уже сделали возможность запуска нескольких версий приложений из одного пакета манифестов, используя лишь встроенные переменные. Кастомизируем установку своими переменными (образ и порт).
+*ui/templates/deployment.yaml*
+```
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-{{ .Chart.Name }}
+  labels:
+    app: reddit
+    component: ui
+    release: {{ .Release.Name }}
+spec:
+  replicas: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: reddit
+      component: ui
+      release: {{ .Release.Name }}
+  template:
+    metadata:
+      name: ui
+      labels:
+        app: reddit
+        component: ui
+        release: {{ .Release.Name }}
+    spec:
+      containers:
+      - image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        name: ui
+        ports:
+        - containerPort: {{ .Values.service.internalPort }}
+          name: ui
+          protocol: TCP
+        env:
+        - name: ENV
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+```
+
+*ui/templates/ingress.yaml*
+```
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-{{ .Chart.Name }}
+  labels:
+    app: reddit
+    component: ui
+    release: {{ .Release.Name }}
+spec:
+  type: NodePort
+  ports:
+  - port: {{ .Values.service.externalPort }}
+    protocol: TCP
+    targetPort: {{ .Values.service.internalPort }}
+  selector:
+    app: reddit
+    component: ui
+    release: {{ .Release.Name }}
+```
+
+*ui/templates/ingress.yaml*
+```
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-{{ .Chart.Name }}
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        backend:
+          serviceName: {{ .Release.Name }}-{{ .Chart.Name }}
+          servicePort: {{ .Values.service.externalPort }}
+```
 
 
+* Определим значения собственных переменных *ui/values.yaml*
+```
+---
+service:
+  internalPort: 9292
+  externalPort: 9292
 
+image:
+  repository: mrshadow74/ui
+  tag: latest
+```
 
-
-
-
+* Так мы собрали Chart для развертывания ui-компоненты приложения. Он должен иметь следующую структуру
+└── ui
+├── Chart.yaml
+├── templates
+│   ├── deployment.yaml
+│   ├── ingress.yaml
+│   └── service.yaml
+└── values.yaml
 
 
 
