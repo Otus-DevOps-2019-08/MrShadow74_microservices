@@ -6270,12 +6270,280 @@ image:
 
 * Так мы собрали Chart для развертывания ui-компоненты приложения. Он должен иметь следующую структуру
 └── ui
-├── Chart.yaml
-├── templates
-│   ├── deployment.yaml
-│   ├── ingress.yaml
-│   └── service.yaml
-└── values.yaml
+    ├── Chart.yaml
+    ├── templates
+    │   ├── deployment.yaml
+    │   ├── ingress.yaml
+    │   └── service.yaml
+    └── values.yaml
+
+* Осталось аналогично собрать пакеты для остальных компонент
+*post/templates/service.yaml*
+```
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-{{ .Chart.Name }}
+  labels:
+    app: reddit
+    component: post
+    release: {{ .Release.Name }}
+spec:
+  type: ClusterIP
+  ports:
+  - port: {{ .Values.service.externalPort }}
+    protocol: TCP
+    targetPort: {{ .Values.service.internalPort }}
+  selector:
+    app: reddit
+    component: post
+    release: {{ .Release.Name }}
+```
+
+*post/templates/deployment.yaml*
+```
+---
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-{{ .Chart.Name }}
+  labels:
+    app: reddit
+    component: post
+    release: {{ .Release.Name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reddit
+      component: post
+      release: {{ .Release.Name }}
+  template:
+    metadata:
+      name: post
+      labels:
+        app: reddit
+        component: post
+        release: {{ .Release.Name }}
+    spec:
+      containers:
+      - image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        name: post
+        ports:
+        - containerPort: {{ .Values.service.internalPort }}
+          name: post
+          protocol: TCP
+        env:
+        - name: POST_DATABASE_HOST
+          value: {{ .Values.databaseHost }}
+```
+
+* Обратим внимание на адрес БД.
+```
+env:
+- name: POST_DATABASE_HOST
+value: postdb
+```
+
+* Поскольку адрес БД может меняться в зависимости от условий запуска (бд отдельно от кластера, бд запущено в отдельном релизе), то создадим удобный шаблон для задания адреса БД.
+```
+env:
+- name: POST_DATABASE_HOST
+value: {{ .Values.databaseHost }}
+```
+
+Будем задавать бд через переменную databaseHost. Иногда лучше использовать подобный формат переменных вместо структур database.host, так как тогда прийдется определять структуру database, иначе helm выдаст ошибку. Используем функцию default. Если databaseHost не будет определена или ее значение будет пустым, то используется вывод функции printf (которая просто формирует строку <имя-релиза>-mongodb)
+```
+value: {{ .Values.databaseHost | default (printf "%s-mongodb" .Release.Name) }}
+
+release-name-mongodb
+```
+
+* В итоге теперь, если databaseHost не задано, то будет использован адрес базы, поднятой внутри релиза. Более подробная по шаблонизации и функциям здесь `https://helm.sh/docs/chart_template_guide/#the-chart-template-developer-s-guide`
+
+*post/values.yaml*
+```
+service:
+  internalPort: 5000
+  externalPort: 5000
+
+image:
+  repository: chromko/post
+  tag: latest
+
+databaseHost:
+```
+
+* Шаблонизируем сервис comment
+`comment/templates/deployment.yaml`
+```
+---
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-{{ .Chart.Name }}
+  labels:
+    app: reddit
+    component: comment
+    release: {{ .Release.Name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reddit
+      component: comment
+      release: {{ .Release.Name }}
+  template:
+    metadata:
+      name: comment
+      labels:
+        app: reddit
+        component: comment
+        release: {{ .Release.Name }}
+    spec:
+      containers:
+      - image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        name: comment
+        ports:
+        - containerPort: {{ .Values.service.internalPort }}
+          name: comment
+          protocol: TCP
+        env:
+        - name: COMMENT_DATABASE_HOST
+          value: {{ .Values.databaseHost | default (printf "%s-mongodb" .Release.Name) }}
+```
+
+`comment/templates/service.yaml`
+```
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-{{ .Chart.Name }}
+  labels:
+    app: reddit
+    component: comment
+    release: {{ .Release.Name }}
+spec:
+  type: ClusterIP
+  ports:
+  - port: {{ .Values.service.externalPort }}
+    protocol: TCP
+    targetPort: {{ .Values.service.internalPort }}
+  selector:
+    app: reddit
+    component: comment
+    release: {{ .Release.Name }}
+```
+
+`comment/values.yaml`
+```
+---
+service:
+  internalPort: 9292
+  externalPort: 9292
+
+image:
+  repository: chromko/comment
+  tag: latest
+
+databaseHost:
+```
+
+* Итоговая структура
+.
+├── comment
+│   ├── Chart.yaml
+│   ├── templates
+│   │   ├── deployment.yaml
+│   │   └── service.yaml
+│   └── values.yml
+├── post
+│   ├── Chart.yaml
+│   ├── templates
+│   │   ├── deployment.yaml
+│   │   └── service.yaml
+│   └── values.yml
+├── reddit
+├── tiller.yml
+└── ui
+    ├── Chart.yaml
+    ├── templates
+    │   ├── deployment.yaml
+    │   ├── ingress.yaml
+    │   └── service.yaml
+    └── values.yml
+
+* Также стоит отметить функционал helm по использованию helper’ов и функции templates. Helper - это написанная нами функция. В функция описывается, как правило, сложная логика. Шаблоны этих функция распологаются в файле *_helpers.tpl*
+
+Пример функции на основе файла `comment.fullname: Charts/comment/templates/_helpers.tpl`
+```
+{{- define "comment.fullname" -}}
+{{- printf "%s-%s" .Release.Name .Chart.Name }}
+{{- end -}}
+```
+Которая в результате выдаст нам то же, что и `{{ .Release.Name }}-{{ .Chart.Name }}`
+
+* Скорректируем файл `charts/comment/templates/service.yaml`
+```
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "comment.fullname" . }}
+  labels:
+    app: reddit
+    component: comment
+    release: {{ .Release.Name }}
+spec:
+  type: ClusterIP
+  ports:
+  - port: {{ .Values.service.externalPort }}
+    protocol: TCP
+    targetPort: {{ .Values.service.internalPort }}
+  selector:
+    app: reddit
+    component: comment
+    release: {{ .Release.Name }}
+```
+
+* По аналогии создадим для каждого сервиса файл `_helpers.tpl` и скорректируем манифесты под использование функции.
+* Теперь структура выглядит так
+.
+├── comment
+│   ├── Chart.yaml
+│   ├── templates
+│   │   ├── deployment.yaml
+│   │   ├── _helpers.tpl
+│   │   └── service.yaml
+│   └── values.yml
+├── post
+│   ├── Chart.yaml
+│   ├── templates
+│   │   ├── deployment.yaml
+│   │   ├── _helpers.tpl
+│   │   └── service.yaml
+│   └── values.yml
+├── reddit
+├── tiller.yml
+└── ui
+    ├── Chart.yaml
+    ├── templates
+    │   ├── deployment.yaml
+    │   ├── _helpers.tpl
+    │   ├── ingress.yaml
+    │   └── service.yaml
+    └── values.yml
+
+### Управление зависимостями
+
+
+
+
+
+
+
 
 
 
