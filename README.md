@@ -6907,6 +6907,148 @@ reddit-test-comment  29m
 
 * Теперь все работает как и должно: приложение открывается, посты сохраняются, комментарии открываются.
 
+### Как обезопасить себя? (helm2 tiller plugin)
+
+До этого мы деплоили с помощью tiller'а с правами cluster-admin, что небезопасно. Есть концепция создания tiller'а в каждом namespace'е и наделение его лишь необходимыми правами. Чтобы не создавать каждый раз namespace и tiller в нем руками, используем tiller-plugin `https://github.com/rimusz/helm-tiller`, его описание здесь `https://rimusz.net/tillerless-helm`.
+
+1. Удалим уже имеющийся tiller из кластера
+```
+$ helm reset
+Error: there are still 1 deployed releases (Tip: use --force to remove Tiller. Releases will not be deleted.)
+```
+Прислушаемся к рекомендации и попробуем выполнить с ключом --force
+```
+$ helm reset --force
+Tiller (the Helm server-side component) has been uninstalled from your Kubernetes Cluster.
+```
+
+2. Выполним установку плагина и сам деплой в новый namespace *reddit-ns*:
+```
+$ helm init --client-only
+$HELM_HOME has been configured at /home/eaa/.helm.
+Not installing Tiller due to 'client-only' flag having been set
+
+$ helm plugin install https://github.com/rimusz/helm-tiller
+Installed plugin: tiller
+
+$ helm tiller run -- helm upgrade --install --wait --namespace=reddit-ns reddit reddit/          [25/1809]
+Installed Helm version v2.16.1
+Installed Tiller version v2.16.1
+Helm and Tiller are the same version!
+Starting Tiller...
+Tiller namespace: kube-system
+Running: helm upgrade --install --wait --namespace=reddit-ns reddit reddit/
+
+Release "reddit" does not exist. Installing it now.
+NAME:   reddit
+LAST DEPLOYED: Fri Jan 10 15:13:15 2020
+NAMESPACE: reddit-ns
+STATUS: DEPLOYED
+
+RESOURCES:
+==> v1/Deployment
+NAME            AGE
+reddit-mongodb  30s
+reddit-post     30s
+reddit-ui       30s
+
+==> v1/PersistentVolumeClaim
+NAME            AGE
+reddit-mongodb  31s
+
+==> v1/Pod(related)
+NAME                             AGE
+reddit-comment-7fcd4bf47d-gxdwt  30s
+reddit-mongodb-57844dcc44-bw626  30s
+reddit-post-6c9c9765f5-snns5     30s
+reddit-ui-7d77676698-bw2vs       30s
+reddit-ui-7d77676698-r6tx9       30s
+reddit-ui-7d77676698-vlgrs       30s
+
+==> v1/Service
+NAME            AGE
+reddit-comment  30s
+reddit-mongodb  31s
+reddit-post     30s
+reddit-ui       30s
+
+==> v1beta1/Ingress
+NAME       AGE
+reddit-ui  30s
+
+==> v1beta2/Deployment
+NAME            AGE
+reddit-comment  30s
+
+Stopping Tiller...
+```
+
+3. Проверим, что все успешно, получив айпи от `kubectl get ingress -n reddit-ns` и пройдя по нему.
+```
+$ kubectl get ingress -n reddit-ns
+NAME        HOSTS   ADDRESS         PORTS   AGE
+reddit-ui   *       34.107.168.43   80      4m7s
+
+*Microservices Reddit in reddit-ns reddit-ui-7d77676698-vlgrs container*
+```
+
+### Helm3
+Опробуем в бою новую мажорную версию helm
+1. Скачаем третью версию инструмента
+Линк из методички уже помер в связи с появлением релиза, будем пробовать его
+```
+$ wget https://get.helm.sh/helm-v3.0.2-linux-amd64.tar.gz
+```
+2. Положим скаченный бинарник helm в PATH директорую с бинарниками под именем helm3
+3. Создадим новый namespace *new-helm*
+```
+$ kubectl create ns new-helm
+namespace/new-helm created
+```
+4. Задеплоимся
+```
+$ helm3 upgrade --install --namespace=new-helm --wait reddit-release reddit/
+Release "reddit-release" does not exist. Installing it now.
+NAME: reddit-release
+LAST DEPLOYED: Fri Jan 10 21:30:13 2020
+NAMESPACE: new-helm
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+```
+
+Посмотрим его детально
+```
+$ kubectl get ingress -n new-helm
+NAME                HOSTS   ADDRESS          PORTS   AGE
+reddit-release-ui   *       34.107.242.208   80      117s
+
+$ kubectl describe ingress reddit-release-ui -n new-helm
+Name:             reddit-release-ui
+Namespace:        new-helm
+Address:          34.107.242.208
+Default backend:  default-http-backend:80 (10.8.1.8:8080)
+Rules:
+  Host  Path  Backends
+  ----  ----  --------
+  *
+        /*   reddit-release-ui:9292 (10.8.0.5:9292,10.8.1.10:9292,10.8.2.3:9292)
+Annotations:
+  kubernetes.io/ingress.class:            gce
+  ingress.kubernetes.io/backends:         {"k8s-be-30421--8f17c16aa2a9f28c":"HEALTHY","k8s-be-31104--8f17c16aa2a9f28c":"HEALTHY"}
+  ingress.kubernetes.io/forwarding-rule:  k8s-fw-new-helm-reddit-release-ui--8f17c16aa2a9f28c
+  ingress.kubernetes.io/target-proxy:     k8s-tp-new-helm-reddit-release-ui--8f17c16aa2a9f28c
+  ingress.kubernetes.io/url-map:          k8s-um-new-helm-reddit-release-ui--8f17c16aa2a9f28c
+Events:
+  Type    Reason  Age    From                     Message
+  ----    ------  ----   ----                     -------
+  Normal  ADD     5m52s  loadbalancer-controller  new-helm/reddit-release-ui
+  Normal  CREATE  4m50s  loadbalancer-controller  ip: 34.107.242.208
+
+Microservices Reddit in new-helm reddit-release-ui-595d54678-fn9pr container
+```
+
+## GitLab + Kubernetes
 
 
 
