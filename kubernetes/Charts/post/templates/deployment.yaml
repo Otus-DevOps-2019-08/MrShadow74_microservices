@@ -24,12 +24,12 @@ spec:
     spec:
       containers:
       - image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        name: post
+        ports:
+        - containerPort: {{ .Values.service.internalPort }}
           name: post
-          ports:
-          - containerPort: {{ .Values.service.internalPort }}
-            name: post
-            protocol: TCP
-          env:
-            - name: POST_DATABASE_HOST
-              value: {{ .Values.databaseHost | default (printf "%s-mongodb" .Release.Name) }}
+          protocol: TCP
+        env:
+        - name: POST_DATABASE_HOST
+          value: {{ .Values.databaseHost | default (printf "%s-mongodb" .Release.Name) }}
 

@@ -5926,13 +5926,14 @@ tiller-deploy-54f7455d59-ws6sn   1/1     Running   0          60s
 ```
 
 ### Charts
-* Chart - это пакет в Helm. Создадим директорию Charts в папке kubernetes со следующей структурой директорий
-
+*Chart* - это пакет в Helm. Создадим директорию Charts в папке kubernetes со следующей структурой директорий
+```
 ├── Charts
     ├── comment
     ├── post
     ├── reddit
     └── ui
+```
 
 * Начнем разработку *Chart*’а для компонента *ui* приложения. Создадим файл-описание chart’а. Helm предпочитает *.yaml*
 ```
@@ -5950,20 +5951,21 @@ appVersion: 1.0
 ### Templates
 
 * Основным содержимым Chart’ов являются шаблоны манифестов Kubernetes.
-	1. Создадим директорию ui/templates
-	2. Перенесем в неё все манифесты, разработанные ранее для сервиса ui (ui-service, ui-deployment, ui-ingress)
-	3. Переименем их (уберем префикс “ui-“) и поменяем расширение на .yaml) - стилистические правки
-
+	1) Создадим директорию ui/templates
+	2) Перенесем в неё все манифесты, разработанные ранее для сервиса ui (ui-service, ui-deployment, ui-ingress)
+	3) Переименем их (уберем префикс “ui-“) и поменяем расширение на .yaml) - стилистические правки
+```
 └── ui
  ├── Chart.yaml
  ├── templates
  │   ├── deployment.yaml
  │   ├── ingress.yaml
  │   └── service.yaml
+```
 
 * По-сути, это уже готовый пакет для установки в Kubernetes
-	1. Убедитесь, что у вас не развернуты компоненты приложения в kubernetes. Если развернуты - удалите их
-	2. Установим Chart
+	1) Убедитесь, что у вас не развернуты компоненты приложения в kubernetes. Если развернуты - удалите их
+	2) Установим Chart
 ```
 $ helm install --name test-ui-1 ui/
 NAME:   test-ui-1
@@ -5992,14 +5994,14 @@ ui    1s
 ```
 Передаем имя и путь до Chart'a соответсвенно
 
-	3. Посмотрим, что получилось
+	3) Посмотрим, что получилось
 ```
 $ helm ls
 NAME            REVISION        UPDATED                         STATUS          CHART           APP VERSION     NAMESPACE
 test-ui-1       1               Wed Jan  8 15:16:24 2020        DEPLOYED        ui-1.0.0        1               default
 ```
 
-* Теперь необходимо сделать так, чтобы можно было использовать Chart №1 для запуска нескольких экземпляров (релизов). Шаблонизируем `ui/templates/service.yaml`
+Теперь необходимо сделать так, чтобы можно было использовать Chart №1 для запуска нескольких экземпляров (релизов). Шаблонизируем `ui/templates/service.yaml`
 ```
 ---
 apiVersion: v1
@@ -6022,7 +6024,8 @@ spec:
     release: {{ .Release.Name }}
 ```
 
-name: {{ .Release.Name }}-{{ .Chart.Name }} Здесь мы используем встроенные переменные
+`name: {{ .Release.Name }}-{{ .Chart.Name }}`
+Здесь мы используем встроенные переменные
 .Release - группа переменных с информацией о релизе (конкретном запуске Chart’а в k8s)
 .Chart - группа переменных с информацией о Chart’е (содержимое файла Chart.yaml)
 Также еще есть группы переменных:
@@ -6168,9 +6171,9 @@ test-ui-2-ui   *       35.190.64.129    80      8m5s
 test-ui-3-ui   *       34.107.216.76    80      7m56s
 ```
 
-* По IP-адресам можно попасть на разные релизы ui-приложений. Необхидмо подождать пару минут после выполнения команды, пока ingress’ы станут доступными
+По IP-адресам можно попасть на разные релизы ui-приложений. Необхидмо подождать пару минут после выполнения команды, пока ingress’ы станут доступными
 
-* Мы уже сделали возможность запуска нескольких версий приложений из одного пакета манифестов, используя лишь встроенные переменные. Кастомизируем установку своими переменными (образ и порт).
+Мы уже сделали возможность запуска нескольких версий приложений из одного пакета манифестов, используя лишь встроенные переменные. Кастомизируем установку своими переменными (образ и порт).
 *ui/templates/deployment.yaml*
 ```
 ---
@@ -6268,7 +6271,8 @@ image:
   tag: latest
 ```
 
-* Так мы собрали Chart для развертывания ui-компоненты приложения. Он должен иметь следующую структуру
+Так мы собрали Chart для развертывания ui-компоненты приложения. Он должен иметь следующую структуру
+```
 └── ui
     ├── Chart.yaml
     ├── templates
@@ -6276,6 +6280,7 @@ image:
     │   ├── ingress.yaml
     │   └── service.yaml
     └── values.yaml
+```
 
 * Осталось аналогично собрать пакеты для остальных компонент
 *post/templates/service.yaml*
@@ -6346,7 +6351,7 @@ env:
 value: postdb
 ```
 
-* Поскольку адрес БД может меняться в зависимости от условий запуска (бд отдельно от кластера, бд запущено в отдельном релизе), то создадим удобный шаблон для задания адреса БД.
+Поскольку адрес БД может меняться в зависимости от условий запуска (бд отдельно от кластера, бд запущено в отдельном релизе), то создадим удобный шаблон для задания адреса БД.
 ```
 env:
 - name: POST_DATABASE_HOST
@@ -6452,6 +6457,7 @@ databaseHost:
 ```
 
 * Итоговая структура
+```
 .
 ├── comment
 │   ├── Chart.yaml
@@ -6474,6 +6480,7 @@ databaseHost:
     │   ├── ingress.yaml
     │   └── service.yaml
     └── values.yml
+```
 
 * Также стоит отметить функционал helm по использованию helper’ов и функции templates. Helper - это написанная нами функция. В функция описывается, как правило, сложная логика. Шаблоны этих функция распологаются в файле *_helpers.tpl*
 
@@ -6510,6 +6517,7 @@ spec:
 
 * По аналогии создадим для каждого сервиса файл `_helpers.tpl` и скорректируем манифесты под использование функции.
 * Теперь структура выглядит так
+```
 .
 ├── comment
 │   ├── Chart.yaml
@@ -6535,11 +6543,369 @@ spec:
     │   ├── ingress.yaml
     │   └── service.yaml
     └── values.yml
+```
 
 ### Управление зависимостями
 
+* Мы создали Chart’ы для каждой компоненты нашего приложения. Каждый из них можно запустить по-отдельности командой `$ helm install <chart-path> --name <release-name>`. Но они будут запускаться в разных релизах, и не будут видеть друг друга. С помощью механизма управления зависимостями создадим единый Chart reddit, который объединит наши компоненты.
 
+Создадим файл `reddit/Chart.yaml`
+```
+name: reddit
+version: 0.1.0
+description: OTUS sample reddit application
+maintainers:
+- name: mrshadow74
+  email: mrshadow74@mail.ru
+```
 
+Создадим пустой файл `reddit/values.yaml`
+Cоздадим файл `reddit/requirements.yaml`
+```
+---
+dependencies:
+  - name: ui
+    version: "1.0.0"
+    repository: "file://../ui"
+
+  - name: post
+    version: "1.0.0"
+    repository: "file://../post"
+
+  - name: comment
+    version: "1.0.0"
+    repository: "file://../comment"
+```
+
+Имя и версия должны совпадать с содержанием `<приложение>/Chart.yml`. Путь указывается относительно расположения самого `requirements.yaml`
+
+Далее необходимо загрузить зависимости (когда Chart’ не упакован в tgz архив)
+```
+$ helm dep update
+Hang tight while we grab the latest from your chart repositories...
+...Unable to get an update from the "local" chart repository (http://127.0.0.1:8879/charts):
+        Get http://127.0.0.1:8879/charts/index.yaml: dial tcp 127.0.0.1:8879: connect: connection refused
+...Successfully got an update from the "stable" chart repository
+Update Complete.
+Saving 3 charts
+Deleting outdated charts
+```
+Появится файл `requirements.lock` с фиксацией зависимостей, будет создана директория charts с зависимостями в виде архивов. Структура станет следующей
+```
+.
+├── charts
+│   ├── comment-1.0.0.tgz
+│   ├── post-1.0.0.tgz
+│   └── ui-1.0.0.tgz
+├── Chart.yaml
+├── requirements.lock
+├── requirements.yaml
+└── values.yaml
+```
+
+* Chart для базы данных не будем создавать вручную. Возьмем готовый.
+1) Найдем Chart в общедоступном репозитории
+```
+$ helm search mongo
+NAME                                    CHART VERSION   APP VERSION     DESCRIPTION
+stable/mongodb                          7.6.3           4.0.14          NoSQL document-oriented database that stores JSON-like do...
+stable/mongodb-replicaset               3.11.2          3.6             NoSQL document-oriented database that stores JSON-like do...
+stable/prometheus-mongodb-exporter      2.4.0           v0.10.0         A Prometheus exporter for MongoDB metrics
+stable/unifi                            0.5.2           5.11.50         Ubiquiti Network's Unifi Controller
+```
+Версия `stable/mongodb` отличается как от слайда задания, так и от гиста. Возьму последнюю стабильную.
+
+2) добавлю в `reddit/requirements.yaml` запись по mongodb
+```
+  - name: mongodb
+    version: 7.6.3
+    repository: https://kubernetes-charts.storage.googleapis.com
+```
+
+3) Выгружу зависимости
+```
+$ helm dep update
+Hang tight while we grab the latest from your chart repositories...
+...Unable to get an update from the "local" chart repository (http://127.0.0.1:8879/charts):
+        Get http://127.0.0.1:8879/charts/index.yaml: dial tcp 127.0.0.1:8879: connect: connection refused
+...Successfully got an update from the "stable" chart repository
+Update Complete.
+Saving 4 charts
+Downloading mongodb from repo https://kubernetes-charts.storage.googleapis.com
+Deleting outdated charts
+```
+Дерево стало таким
+```
+.
+├── charts
+│   ├── comment-1.0.0.tgz
+│   ├── mongodb-7.6.3.tgz
+│   ├── post-1.0.0.tgz
+│   └── ui-1.0.0.tgz
+├── Chart.yaml
+├── requirements.lock
+├── requirements.yaml
+└── values.yaml
+```
+
+* Установим наше приложение
+```
+$ helm install reddit --name reddit-test
+Error: YAML parse error on reddit/charts/post/templates/deployment.yaml: error converting YAML to JSON: yaml: line 25: did not find expected key
+```
+
+Данная проблема похоже связана с копипастом кода и отсутсвием символов завершения строки. Поправим переносы и заново выполним команду `helm dep update` - без этого пакет не заработает.
+
+Пробуем ещё раз
+```
+$ helm install reddit --name reddit-test
+Error: YAML parse error on reddit/charts/post/templates/deployment.yaml: error converting YAML to JSON: yaml: line 25: did not find expected '-' indicator
+```
+
+Теперь проблема с форатированием - похоже helm очень чувствителен к правильности расположения текста. Правим, выполняем `heml dep update` и проверяе ещё раз.
+
+```
+$ helm install reddit --name reddit-test
+NAME:   reddit-test
+LAST DEPLOYED: Thu Jan  9 23:13:59 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+
+RESOURCES:
+==> v1/Deployment
+NAME                 AGE
+reddit-test-mongodb  1s
+reddit-test-post     1s
+
+==> v1/PersistentVolumeClaim
+NAME                 AGE
+reddit-test-mongodb  1s
+
+==> v1/Pod(related)
+NAME                                  AGE
+reddit-test-comment-7f849c8486-rcr2n  1s
+reddit-test-mongodb-65b547b8f5-jvvkg  1s
+reddit-test-post-65779b44f4-tmwz2     1s
+reddit-test-ui-749d47bd49-2hpq4       1s
+reddit-test-ui-749d47bd49-g98vc       1s
+reddit-test-ui-749d47bd49-tft9n       1s
+
+==> v1/Secret
+NAME                 AGE
+reddit-test-mongodb  1s
+
+==> v1/Service
+NAME                 AGE
+reddit-test-comment  1s
+reddit-test-mongodb  1s
+reddit-test-post     1s
+reddit-test-ui       1s
+
+==> v1beta1/Deployment
+NAME            AGE
+reddit-test-ui  1s
+
+==> v1beta1/Ingress
+NAME            AGE
+reddit-test-ui  1s
+
+==> v1beta2/Deployment
+NAME                 AGE
+reddit-test-comment  1s
+```
+Дождемся формирование ингресса и проверим результат
+```
+$ helm list
+NAME            REVISION        UPDATED                         STATUS          CHART           APP VERSION     NAMESPACE
+reddit-test     1               Fri Jan 10 09:55:39 2020        DEPLOYED        reddit-0.1.0                    default
+
+$ kubectl get ingress
+NAME             HOSTS   ADDRESS         PORTS   AGE
+reddit-test-ui   *       35.190.64.129   80      2m39s
+```
+
+Откроем адрес ингресса, в первом приближении результат положительный.
+
+Есть проблема с тем, что UI-сервис не знает как правильно ходить в post и comment сервисы. Ведь их имена теперь динамические и зависят от имен чартов. В Dockerfile UI-сервиса уже заданы переменные окружения. Надо, чтобы они указывали на нужные бекенды
+```
+ENV POST_SERVICE_HOST post
+ENV POST_SERVICE_PORT 5000
+ENV COMMENT_SERVICE_HOST comment
+ENV COMMENT_SERVICE_PORT 9292
+```
+
+* Добавим в ui/deployments.yaml
+```
+…
+env:
+- name: POST_SERVICE_HOST
+value: {{ .Values.postHost | default (printf "%s-post" .Release.Name) }}
+- name: POST_SERVICE_PORT
+value: {{ .Values.postPort | default "5000" | quote }}
+- name: COMMENT_SERVICE_HOST
+value: {{ .Values.commentHost | default (printf "%s-comment" .Release.Name)
+}}
+- name: COMMENT_SERVICE_PORT
+value: {{ .Values.commentPort | default "9292" | quote }}
+```
+
+❗ Обратим внимание на функцию добавления кавычек. Для чисел и булевых значений это важно `{{ .Values.commentPort | default "9292" | quote }}`
+
+Добавим в `ui/values.yaml`
+```
+ingress:
+  class: nginx
+
+postHost:
+postPort:
+commentHost:
+commentPort:
+```
+Эти параметры можно сделать закомментированными или оставить пустыми. Главное, чтобы они были в конфигурации Chart’а в качестве документации.
+
+* Можно задавать переменные для зависимостей прямо в `reddit/values.yaml` самого Chart’а reddit. Они имеют больший приоритет и перезаписывают значения переменных из зависимых чартов.
+```
+comment:
+  image:
+    repository: mrshadow74/comment
+    tag: latest
+  service:
+    externalPort: 9292
+
+post:
+  image:
+    repository: mrshadow74/post
+    tag: latest
+  service:
+    externalPort: 5000
+
+ui:
+  image:
+    repository: mrshadow74/ui
+    tag: latest
+  service:
+    externalPort: 9292
+```
+
+* После обновления необходимо обновить зависимости чарта reddit.
+```
+$ helm dep update ./reddit
+Hang tight while we grab the latest from your chart repositories...
+...Unable to get an update from the "local" chart repository (http://127.0.0.1:8879/charts):
+        Get http://127.0.0.1:8879/charts/index.yaml: dial tcp 127.0.0.1:8879: connect: connection refused
+...Successfully got an update from the "stable" chart repository
+Update Complete.
+Saving 4 charts
+Downloading mongodb from repo https://kubernetes-charts.storage.googleapis.com
+Deleting outdated charts
+```
+
+И после этого обновим релиз и переоткроем web-страницу
+```
+$ helm upgrade reddit-test ./reddit
+Release "reddit-test" has been upgraded.
+LAST DEPLOYED: Fri Jan 10 10:51:30 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+
+RESOURCES:
+==> v1/Deployment
+NAME                 AGE
+reddit-test-mongodb  55m
+reddit-test-post     55m
+
+==> v1/PersistentVolumeClaim
+NAME                 AGE
+reddit-test-mongodb  55m
+
+==> v1/Pod(related)
+NAME                                  AGE
+reddit-test-comment-7f849c8486-fzwng  55m
+reddit-test-mongodb-65b547b8f5-2fkjp  55m
+reddit-test-post-65779b44f4-qg2j4     46m
+reddit-test-post-7ccddc484f-hxmg4     2s
+reddit-test-ui-749d47bd49-2dgrg       46m
+reddit-test-ui-749d47bd49-g22gl       55m
+reddit-test-ui-749d47bd49-qqrgc       55m
+
+==> v1/Secret
+NAME                 AGE
+reddit-test-mongodb  55m
+
+==> v1/Service
+NAME                 AGE
+reddit-test-comment  55m
+reddit-test-mongodb  55m
+reddit-test-post     55m
+reddit-test-ui       55m
+
+==> v1beta1/Deployment
+NAME            AGE
+reddit-test-ui  55m
+
+==> v1beta1/Ingress
+NAME            AGE
+reddit-test-ui  55m
+
+==> v1beta2/Deployment
+NAME                 AGE
+reddit-test-comment  55m
+```
+
+Что-то идет не так, post недоступен. Нашлась кучка неточностей в конфигах, удалим приложение и перевыкатим его еще раз.
+```
+$ helm list
+helm deleNAME           REVISION        UPDATED                         STATUS          CHART           APP VERSION     NAMESPACE
+reddit-test     3               Fri Jan 10 11:06:16 2020        DEPLOYED        reddit-0.1.0                    default
+
+$ helm del --purge reddit-test
+release "reddit-test" deleted
+
+$ helm install ./reddit --name reddit-test
+$ helm upgrade reddit-test ./reddit                                                              [15/1929]
+Release "reddit-test" has been upgraded.
+LAST DEPLOYED: Fri Jan 10 12:37:00 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+
+RESOURCES:
+==> v1/Deployment
+NAME                 AGE
+reddit-test-mongodb  29m
+reddit-test-post     29m
+reddit-test-ui       29m
+
+==> v1/PersistentVolumeClaim
+NAME                 AGE
+reddit-test-mongodb  29m
+
+==> v1/Pod(related)
+NAME                                  AGE
+reddit-test-comment-67cbffbf7d-ql5zn  29m
+reddit-test-mongodb-65b547b8f5-xlslv  29m
+reddit-test-mongodb-7499bc7697-jf56b  6m37s
+reddit-test-post-7ccddc484f-f6l2r     29m
+reddit-test-ui-5999c9fd79-2j5vc       29m
+reddit-test-ui-5999c9fd79-cmv9v       29m
+reddit-test-ui-5999c9fd79-z4cwm       29m
+
+==> v1/Service
+NAME                 AGE
+reddit-test-comment  29m
+reddit-test-mongodb  29m
+reddit-test-post     29m
+reddit-test-ui       29m
+
+==> v1beta1/Ingress
+NAME            AGE
+reddit-test-ui  29m
+
+==> v1beta2/Deployment
+NAME                 AGE
+reddit-test-comment  29m
+```
+
+* Теперь все работает как и должно: приложение открывается, посты сохраняются, комментарии открываются.
 
 
 
