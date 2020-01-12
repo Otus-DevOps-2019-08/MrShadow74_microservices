@@ -7934,6 +7934,8 @@ helm delete "$name" --purge || true
 
 В Environments можем получить ссылку на сбилженное приложение. Только ссылка ведет на gitlab, а приложение запускается на собственном ингрессе. И либо результат не пробрасывается на стороне nginx gitlab-а, либо просто данный функционал нифига не работает.
 
+* !!! А на самом деле всё открывается, если обращатсья не на ip gitlab-a, а на ip-адреса ингрессов приложений.
+
 Скопируем полученный файл `.gitlab-ci.yml` для ui в репозитории для post и comment. Проверим, что динамическое создание и удаление окружений работает с ними как ожидалось - работают успешно.
 
 ### Деплоим
@@ -8069,10 +8071,103 @@ before_script:
 
 * Staging успешно завершен
 
+### Пайплайн здорового человека
 
+* Сейчас почти вся логика пайплайна заключена в auto_devops и трудночитаема. Давайте переделаем имеющийся для ui пайплайн так, чтобы он соответствовал синтаксису Gitlab. Тонкости синтаксиса:
+1. Объявление переменных можно перенести в variables
+2. conditional statements можно записать так:
+```
+if [[ "$track" != "stable" ]]; then
+name="$name-$track"
+fi
+```
 
+А разносить строку на несколько так:
+```
+helm upgrade --install \
+--wait \
+--set ui.ingress.host="$host"
+```
 
+Как видим, читаемость кода значительно возросла.
 
+* Задание
+1. Изменить пайплайн сервиса COMMENT, использующих для деплоя helm2 таким образом, чтобы деплой осуществлялся с использованием . Таким образом, деплой каждого пайплайна из трех сервисов должен производиться по-разному.
+2. Изменить пайплайн сервиса POST, чтобы он использовал helm3 для деплоя.
 
+* Полученные файлы пайплайнов для сервисов (4 штуки: ui, post, comment, reddit) положить в директорию Charts/gitlabci под именами .gitlab-ci.yml и закоммитить.
+Большой философский вопрос: почему четыре, когда проверка ищет только три, и почему по такому пути, когда проверка ищет совсем в другом месте???
+
+* Файл `.gitlab-ci.yml` сервиса *comment*
+```
+...
+function install_dependencies() {
+...
+helm init --client-only
+    helm plugin install https://github.com/rimusz/helm-tiller
+...
+function deploy() {
+...
+echo "Deploy helm release $name to $KUBE_NAMESPACE"
+    helm tiller run \
+    helm upgrade --install \
+      --wait \
+      --set ui.ingress.host="$host" \
+      --set $CI_PROJECT_NAME.image.tag=$CI_APPLICATION_TAG \
+      --namespace="$KUBE_NAMESPACE" \
+      --version="$CI_PIPELINE_ID-$CI_JOB_ID" \
+      "$name" \
+      reddit-deploy/reddit/
+  }
+...
+function install_tiller() {
+    echo "Checking Tiller..."
+    #helm init --upgrade
+    helm init --client-only
+    kubectl rollout status -n "$TILLER_NAMESPACE" -w "deployment/tiller-deploy"
+    if ! helm version --debug; then
+      echo "Failed to init Tiller."
+      return 1
+    fi
+    echo ""
+  }
+```
+
+* Файл `.gitlab-ci.yml` сервиса *post*
+```
+...
+function install_dependencies() {
+    #curl https://kubernetes-helm.storage.googleapis.com/helm-v2.13.1-linux-amd64.tar.gz | tar zx
+    curl https://get.helm.sh/helm-v3.0.2-linux-amd64.tar.gz | tar zx
+...
+```
+
+## Задание со *
+* Сейчас у нас выкатка на staging и production - по нажатию кнопки. Свяжите пайплайны сборки образов и пайплайн деплоя на staging и production так, чтобы после релиза образа из ветки мастер запускался деплой уже новой версии приложения на production
+
+* Решение: заменить параметр when со значения manual на on_success
+```
+production:
+  stage: production
+  script:
+    - install_dependencies
+    - ensure_namespace
+    - install_tiller
+    - deploy
+  variables:
+    KUBE_NAMESPACE: production
+  environment:
+    name: production
+    url: http://production
+  when: on_success
+  only:
+    refs:
+      - master
+    kubernetes: active
+```
+
+* Выковыривание auto_devops уже не стал расписывать, грабли замучали. Сделать можно собиранием содержимого всех функций в 2 группы скриптов, выполняемых до начала деплоя и после его окончания.
+
+* Файл `.gitlab-ci.yml` проекта reddit-deploy помещен в каталог `kubernetes/Charts`
 
 
