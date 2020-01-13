@@ -8716,6 +8716,61 @@ UP	app="reddit" component="ui" instance="10.8.2.7:9292" kubernetes_name="staging
 *Теперь метрики будут отображаться для всех инстансов приложений.*
 
 * Задание: разбейте конфигурацию job’а reddit-endpoints так, чтобы было 3 job’а для каждой из компонент приложений (post-endpoints, comment-endpoints, ui-endpoints), а reddit-endpoints уберите.
+* Решение
+```
+## custom_values.yml
+      - job_name: 'reddit-post-endpoints'
+
+
+        kubernetes_sd_configs:
+          - role: endpoints
+
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app]
+            action: keep                                 # Используем действие keep, чтобы оставить
+            regex: post                                  # только эндпоинты сервисов с метками “app=post”
+          - action: labelmap                             # Отобразить все совпадения групп
+            regex: __meta_kubernetes_service_label_(.+)  # из regex в label’ы Prometheus
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: kubernetes_namespace
+
+      ## custom_values.yml
+      - job_name: 'reddit-comment-endpoints'
+
+        kubernetes_sd_configs:
+          - role: endpoints
+
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app]
+            action: keep                                 # Используем действие keep, чтобы оставить
+            regex: comment                               # только эндпоинты сервисов с метками “app=comment”
+          - action: labelmap                             # Отобразить все совпадения групп
+            regex: __meta_kubernetes_service_label_(.+)  # из regex в label’ы Prometheus
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: kubernetes_name
+
+      ## custom_values.yml
+      - job_name: 'reddit-ui-endpoints'
+
+        kubernetes_sd_configs:
+          - role: endpoints
+
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app]
+            action: keep                                 # Используем действие keep, чтобы оставить
+            regex: ui                                    # только эндпоинты сервисов с метками “app=ui”
+          - action: labelmap                             # Отобразить все совпадения групп
+            regex: __meta_kubernetes_service_label_(.+)  # из regex в label’ы Prometheus
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: kubernetes_name
+```
+
+
+
 
 
 
