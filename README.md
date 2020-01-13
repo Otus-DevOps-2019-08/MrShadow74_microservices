@@ -8468,6 +8468,48 @@ relabel_configs:
 * Cadvisor собирает лишь информацию о потреблении ресурсов и производительности отдельных docker-контейнеров. При этом он ничего не знает о сущностях k8s (деплойменты, репликасеты, ...). Для сбора этой информации будем использовать сервис *kubestate-metrics*. Он входит в чарт Prometheus. Включим его.
 ```
 
+##prometheus/custom_values.yml
+...
+kubeStateMetrics:
+  ## If false, kube-state-metrics will not be installed
+  ##
+  enabled: true
+```
+
+И обновим релиз
+```
+$ helm upgrade prom . -f custom_values.yml --install
+Release "prom" has been upgraded.
+LAST DEPLOYED: Mon Jan 13 15:51:19 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+```
+
+* В Таргетсах видим запланированные изменения, в Графах видим добавившиеся метрики *kube_deployment_*.
+
+* По аналогии с *kube_state_metrics* включим поды `node-exporter` в `custom_values.yml`.
+```
+nodeExporter:
+  ## If false, node-exporter will not be installed
+  ##
+  enabled: true
+```
+И применим изменения 
+```
+$ helm upgrade prom . -f custom_values.yml --install
+Release "prom" has been upgraded.
+LAST DEPLOYED: Mon Jan 13 19:49:26 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+```
+
+Проверим, что метрики начали собираться с них - добавились метрики `kube_node_` с данными.
+
+
+
+
+
+
 
 
 
