@@ -8170,4 +8170,307 @@ production:
 
 * Файл `.gitlab-ci.yml` проекта reddit-deploy помещен в каталог `kubernetes/Charts`
 
+# Kubernetes. Мониторинг и логирование
+
+У вас должен быть развернуть кластер k8s:
+ - минимум 2 ноды g1-small (1,5 ГБ)
+ - минимум 1 нода n1-standard-2 (7,5 ГБ)
+
+В настройках:
+ - Stackdriver Logging - Отключен
+ - Stackdriver Monitoring - Отключен
+ - Устаревшие права доступа - Включено
+
+Из Helm-чарта установим ingress-контроллер nginx
+```
+$ kubectl apply -f tiller.yml
+serviceaccount/tiller created
+clusterrolebinding.rbac.authorization.k8s.io/tiller created
+
+$ helm init --service-account tiller
+$HELM_HOME has been configured
+
+$ helm install stable/nginx-ingress --name nginx                                                 [54/1816]
+NAME:   nginx
+LAST DEPLOYED: Mon Jan 13 13:36:57 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+
+RESOURCES:
+==> v1/ClusterRole
+NAME                 AGE
+nginx-nginx-ingress  1s
+
+==> v1/ClusterRoleBinding
+NAME                 AGE
+nginx-nginx-ingress  1s
+
+==> v1/Deployment
+NAME                                 AGE
+nginx-nginx-ingress-controller       1s
+nginx-nginx-ingress-default-backend  1s
+
+==> v1/Pod(related)
+NAME                                                  AGE
+nginx-nginx-ingress-controller-787986ff47-zz9fq       1s
+nginx-nginx-ingress-default-backend-766d57499b-5x9nq  1s
+
+==> v1/Role
+NAME                 AGE
+nginx-nginx-ingress  1s
+
+==> v1/RoleBinding                                                                                                                                             [25/1816]
+NAME                 AGE
+nginx-nginx-ingress  1s
+
+==> v1/Service
+NAME                                 AGE
+nginx-nginx-ingress-controller       1s
+nginx-nginx-ingress-default-backend  1s
+
+==> v1/ServiceAccount
+NAME                         AGE
+nginx-nginx-ingress          1s
+nginx-nginx-ingress-backend  1s
+
+
+NOTES:
+The nginx-ingress controller has been installed.
+It may take a few minutes for the LoadBalancer IP to be available.
+You can watch the status by running 'kubectl --namespace default get services -o wide -w nginx-nginx-ingress-controller'
+
+An example Ingress that makes use of the controller:
+
+  apiVersion: extensions/v1beta1
+  kind: Ingress
+  metadata:
+    annotations:
+      kubernetes.io/ingress.class: nginx
+    name: example
+    namespace: foo
+  spec:
+    rules:
+      - host: www.example.com
+        http:
+          paths:
+            - backend:
+                serviceName: exampleService
+                servicePort: 80
+              path: /
+    # This section is only required if TLS is to be enabled for the Ingress
+    tls:
+        - hosts:
+            - www.example.com
+          secretName: example-tls
+
+If TLS is enabled for the Ingress, a Secret containing the certificate and key must also be provided:
+
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    name: example-tls
+    namespace: foo
+  data:
+    tls.crt: <base64 encoded cert>
+    tls.key: <base64 encoded key>
+  type: kubernetes.io/tls
+```
+
+Найдем IP-адрес, выданный nginx’у
+```
+$ kubectl get svc
+NAME                                  TYPE           CLUSTER-IP    EXTERNAL-IP      PORT(S)                      AGE
+kubernetes                            ClusterIP      10.0.0.1      <none>           443/TCP                      21m
+nginx-nginx-ingress-controller        LoadBalancer   10.0.7.11     35.246.227.226   80:30413/TCP,443:30064/TCP   3m9s
+nginx-nginx-ingress-default-backend   ClusterIP      10.0.11.237   <none>           80/TCP                       3m9s
+```
+
+Добавим в /etc/hosts
+```
+35.246.227.226 reddit reddit-prometheus reddit-grafana reddit-non-prod production redditkibana staging prod
+```
+
+* План
+Развертывание Prometheus в k8s.
+Настройка Prometheus и Grafana для сбора метрик.
+Настройка EFK для сбора логов.
+
+## Мониторинг
+
+* Стек
+В задании будем использовать уже знакомые нам инструменты:
+ - prometheus - сервер сбора метрик
+ - grafana - сервер визуализации метрик
+ - alertmanager - компонент prometheus для алертинга различные экспортеры для метрик prometheus.
+Prometheus отлично подходит для работы с контейнерами и динамичным размещением сервисов.
+
+### Установим Prometheus
+Prometheus будем ставить с помощью Helm чарта. Загрузим prometheus локально в Charts каталог
+```
+$ cd kubernetes/Charts && helm fetch --untar stable/prometheus
+```
+
+* Создадим внутри директории чарта файл `custom_values.yml` из гиста `https://gist.githubusercontent.com/chromko/2bd290f7becdf707cde836ba1ea6ec5c/raw/c17372866867607cf4a0445eb519f9c2c377a0ba/gistfile1.txt`
+
+Основные отличия от values.yml:
+ - отключена часть устанавливаемых сервисов (pushgateway, alertmanager, kube-state-metrics)
+ - включено создание Ingress’а для подключения через nginx
+ - поправлен endpoint для сбора метрик cadvisor
+ - уменьшен интервал сбора метрик (с 1 минуты до 30 секунд)
+
+* Запустим Prometheus в k8s из charsts/prometheus
+```
+s$ helm upgrade prom . -f custom_values.yml --install                                  [26/1801]
+Release "prom" does not exist. Installing it now.
+NAME:   prom
+LAST DEPLOYED: Mon Jan 13 14:15:06 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+
+RESOURCES:
+==> v1/ConfigMap
+NAME                    AGE
+prom-prometheus-server  2s
+
+==> v1/Deployment
+NAME                    AGE
+prom-prometheus-server  2s
+
+==> v1/PersistentVolumeClaim
+NAME                    AGE
+prom-prometheus-server  2s
+
+==> v1/Pod(related)
+NAME                                   AGE
+prom-prometheus-server-bdc8df4b-sdl6k  2s
+
+==> v1/Service
+NAME                    AGE
+prom-prometheus-server  2s
+
+==> v1/ServiceAccount
+NAME                    AGE
+prom-prometheus-server  2s
+
+==> v1beta1/Ingress
+NAME                    AGE
+prom-prometheus-server  2s
+
+NOTES:
+The Prometheus server can be accessed via port 80 on the following DNS name from within your cluster:
+prom-prometheus-server.default.svc.cluster.local
+
+From outside the cluster, the server URL(s) are:
+http://reddit-prometheus
+
+#################################################################################
+######   WARNING: Pod Security Policy has been moved to a global property.  #####
+######            use .Values.podSecurityPolicy.enabled with pod-based      #####
+######            annotations                                               #####
+######            (e.g. .Values.nodeExporter.podSecurityPolicy.annotations) #####
+#################################################################################
+
+For more information on running Prometheus, visit:
+https://prometheus.io/
+```
+
+### Targets
+
+В статусах таргетов у нас уже присутствует ряд endpoint’ов для сбора метрик:
+ - сам prometheus
+ - Метрики API-сервера
+ - метрики нод с cadvisor’ов
+
+* Отметим, что можно собирать метрики cadvisor’а (который уже является частью kubelet) через проксирующий запрос в kube-apiserver. Если зайти по ssh на любую из машин кластера и запросить `$ curl http://localhost:4194/metrics`, то мы получим те же метрики у kubelet напрямую. Но вариант с kube-api предпочтительней, т.к. этот трафик
+шифруется TLS и требует аутентификации.
+
+* Таргеты для сбора метрик найдены с помощью *service discovery (SD)*, настроенного в конфиге prometheus *custom-values.yml*.
+```
+prometheus.yml:
+...
+  - job_name: 'kubernetes-apiservers' # kubernetes-apiservers (1/1 up)
+...
+  - job_name: 'kubernetes-nodes' # kubernetes-nodes (3/3 up)
+      kubernetes_sd_configs: # Настройки Service Discovery (для поиска target’ов)
+        - role: node
+      scheme: https # Настройки подключения к target’ам (для сбора метрик)
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        insecure_skip_verify: true
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabel_configs: # Настройки различных меток, фильтрация найденных таргетов, их изменений
+```
+
+Использование SD в kubernetes позволяет нам динамично менять кластер (как сами хосты, так и сервисы и приложения). Цели для мониторинга находим c помощью запросов к k8s API:
+```
+prometheus.yml:
+...
+    scrape_configs:
+      - job_name: 'kubernetes-nodes'
+        kubernetes_sd_configs:
+          - role: node # Role объект, который нужно найти:
+# - node
+# - endpoints
+# - pod
+# - service
+# - ingress
+
+prometheus.yml:
+...
+    scrape_configs:
+    - job_name: 'kubernetes-nodes'
+      kubernetes_sd_configs:
+      - role: node
+```
+
+Т.к. сбор метрик prometheus осуществляется поверх стандартного HTTP-протокола, то могут понадобится доп. настройки для безопасного доступа к метрикам. Ниже приведены настройки для сбора метрик из k8s AP
+```
+scheme: https
+tls_config:
+  ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+  insecure_skip_verify: true
+bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+```
+
+1. Схема подключения - http (default) или https
+2. Конфиг TLS - корневой сертификат сервера для проверки достоверности сервера
+3. Токен для аутентификации на сервере
+
+Targets:
+```
+$ kubectl get nodes
+NAME                                        STATUS   ROLES    AGE   VERSION
+gke-kuber-gke-g1-small-9c85d19b-0p28        Ready    <none>   88m   v1.15.4-gke.22
+gke-kuber-gke-g1-small-9c85d19b-ppz0        Ready    <none>   88m   v1.15.4-gke.22
+gke-kuber-gke-n1-standard-2-fadc5ba8-zzff   Ready    <none>   88m   v1.15.4-gke.22
+```
+
+Подробнее о том, как работает *relabel_config* `https://prometheus.io/docs/prometheus/latest/configuration/configuration/#relabel_config`
+```
+#Kubernetes nodes
+relabel_configs:
+- action: labelmap # преобразовать все k8s лейблы таргета в лейблы prometheus
+  regex: __meta_kubernetes_node_label_(.+)
+- target_label: __address__ # Поменять лейбл для адреса сбора метрик
+  replacement: kubernetes.default.svc:443
+- source_labels: [__meta_kubernetes_node_name] # Поменять лейбл для пути сбора метрик
+  regex: (.+)
+  target_label: __metrics_path__
+  replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+```
+
+* В результате получим лейблы в prometheus.
+
+### Metrics
+
+* Все найденные на эндпоинтах метрики сразу же отобразятся в списке (вкладка Graph). Метрики Cadvisor начинаются с *container_*.
+
+* Cadvisor собирает лишь информацию о потреблении ресурсов и производительности отдельных docker-контейнеров. При этом он ничего не знает о сущностях k8s (деплойменты, репликасеты, ...). Для сбора этой информации будем использовать сервис *kubestate-metrics*. Он входит в чарт Prometheus. Включим его.
+```
+
+
+
+
+
+
 
