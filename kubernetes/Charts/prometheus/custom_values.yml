@@ -807,6 +807,40 @@ serverFiles:
             action: replace
             target_label: kubernetes_pod_name
 
+      ## custom_values.yml
+      - job_name: 'reddit-endpoints'
+
+        kubernetes_sd_configs:
+          - role: endpoints
+        
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app]
+            action: keep                                 # Используем действие keep, чтобы оставить
+            regex: reddit                                # только эндпоинты сервисов с метками “app=reddit”
+          - action: labelmap                             # Отобразить все совпадения групп
+            regex: __meta_kubernetes_service_label_(.+)  # из regex в label’ы Prometheus
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: kubernetes_name
+
+      ## custom_values.yml
+      - job_name: 'reddit-production'
+
+        kubernetes_sd_configs:
+          - role: endpoints
+
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_service_label_(.+)
+          - source_labels: [__meta_kubernetes_service_label_app, __meta_kubernetes_namespace]
+            action: keep
+            regex: reddit;(production|staging)+
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: kubernetes_name
+
 networkPolicy:
   ## Enable creation of NetworkPolicy resources.
   ##

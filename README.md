@@ -8505,11 +8505,217 @@ STATUS: DEPLOYED
 
 Проверим, что метрики начали собираться с них - добавились метрики `kube_node_` с данными.
 
+### Метрики приложений
 
+Запустим приложение из helm чарта reddit
+```
+$ helm upgrade reddit-test ./reddit --install
+NAME:   reddit-test
+LAST DEPLOYED: Mon Jan 13 20:07:20 2020
+NAMESPACE: default
+STATUS: DEPLOYED
 
+$ helm upgrade production --namespace production ./reddit --install
+Release "production" does not exist. Installing it now.
+NAME:   production
+LAST DEPLOYED: Mon Jan 13 20:10:37 2020
+NAMESPACE: production
+STATUS: DEPLOYED
 
+$ helm upgrade staging --namespace staging ./reddit --install
+Release "staging" does not exist. Installing it now.
+NAME:   staging
+LAST DEPLOYED: Mon Jan 13 20:11:46 2020
+NAMESPACE: staging
+STATUS: DEPLOYED
+```
 
+Раньше мы “хардкодили” адреса/dns-имена наших приложений для сбора метрик с них.
+```
+##prometheus.yml
+  - job_name: 'ui'
+    static_configs:
+      - targets:
+        - 'ui:9292'
+  - job_name: 'comment'
+    static_configs:
+      - targets:
+        - 'comment:9292'
+```
+* Теперь мы можем использовать механизм *ServiceDiscovery* для обнаружения приложений, запущенных в k8s. Приложения будем искать так же, как и служебные сервисы k8s. Модернизируем конфиг prometheus:
+```
+## custom_values.yml
+     - job_name: 'reddit-endpoints'
+       kubernetes_sd_configs:
+         - role: endpoints
+       relabel_configs:
+         - source_labels: [__meta_kubernetes_service_label_app]
+           action: keep              # Используем действие keep, чтобы оставить
+           regex: reddit             # только эндпоинты сервисов с метками “app=reddit”
+```
 
+* Обновим релиз prometheus
+```
+$ helm upgrade prom . -f custom_values.yml --install
+Release "prom" has been upgraded.
+LAST DEPLOYED: Mon Jan 13 20:45:23 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+```
+
+* Мы получили эндпоинты, но что это за поды мы не знаем. Добавим метки k8s, все лейблы и аннотации k8s изначально отображаются в prometheus в формате:
+```
+__meta_kubernetes_service_label_labelname
+__meta_kubernetes_service_annotation_annotationname
+```
+
+Добавим в наш `custom_values.yml`
+```
+##custom_values.yml
+    relabel_configs:
+        - action: labelmap # Отобразить все совпадения групп
+          regex: __meta_kubernetes_service_label_(.+) # из regex в label’ы Prometheus
+```
+
+* И обновим релиз prometheus
+```
+$ helm upgrade prom . -f custom_values.yml --install
+Release "prom" has been upgraded.
+LAST DEPLOYED: Mon Jan 13 20:59:12 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+```
+
+* Теперь мы видим лейблы k8s, присвоенные POD’ам
+```
+http://10.8.0.14:9292/metrics
+UP	app="reddit" component="comment" instance="10.8.0.14:9292" release="reddit-test"	10.182s ago	
+http://10.8.0.15:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.15:9292" release="reddit-test"	23.923s ago	
+http://10.8.0.17:9292/metrics
+UP	app="reddit" component="comment" instance="10.8.0.17:9292" release="production"	19.518s ago	
+http://10.8.0.18:5000/metrics
+UP	app="reddit" component="post" instance="10.8.0.18:5000" release="production"	9.579s ago	
+http://10.8.0.19:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.19:9292" release="production"	8.178s ago	
+http://10.8.0.20:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.20:9292" release="production"	22.819s ago	
+http://10.8.0.21:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.21:9292" release="production"	28.226s ago	
+http://10.8.0.23:9292/metrics
+UP	app="reddit" component="comment" instance="10.8.0.23:9292" release="staging"	10.996s ago	
+http://10.8.0.24:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.24:9292" release="staging"	3.617s ago	
+http://10.8.1.3:5000/metrics
+UP	app="reddit" component="post" instance="10.8.1.3:5000" release="reddit-test"	11.182s ago	
+http://10.8.1.4:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.1.4:9292" release="reddit-test"	15.764s ago	
+http://10.8.1.5:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.1.5:9292" release="staging"	16.063s ago	
+http://10.8.2.5:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.2.5:9292" release="reddit-test"	7.708s ago	
+http://10.8.2.6:5000/metrics
+UP	app="reddit" component="post" instance="10.8.2.6:5000" release="staging"	22.051s ago	
+http://10.8.2.7:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.2.7:9292" release="staging"	10.995s ago
+```
+
+* Добавим еще label’ы для prometheus и обновим helm-релиз. Т.к. метки вида _meta* не публикуются, то нужно создать свои, перенеся в них информацию.
+```
+- source_labels: [__meta_kubernetes_namespace]
+  target_label: kubernetes_namespace
+- source_labels: [__meta_kubernetes_service_name]
+  target_label: kubernetes_name
+```
+
+* Обновим релиз prometheus и увидим...
+```
+http://10.8.0.14:9292/metrics
+UP	app="reddit" component="comment" instance="10.8.0.14:9292" kubernetes_name="reddit-test-comment" kubernetes_namespace="default" release="reddit-test"	23.926s ago	
+http://10.8.0.15:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.15:9292" kubernetes_name="reddit-test-ui" kubernetes_namespace="default" release="reddit-test"	13.615s ago	
+http://10.8.0.17:9292/metrics
+UP	app="reddit" component="comment" instance="10.8.0.17:9292" kubernetes_name="production-comment" kubernetes_namespace="production" release="production"	19.787s ago	
+http://10.8.0.18:5000/metrics
+UP	app="reddit" component="post" instance="10.8.0.18:5000" kubernetes_name="production-post" kubernetes_namespace="production" release="production"	238ms ago	
+http://10.8.0.19:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.19:9292" kubernetes_name="production-ui" kubernetes_namespace="production" release="production"	19.764s ago	
+http://10.8.0.20:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.20:9292" kubernetes_name="production-ui" kubernetes_namespace="production" release="production"	25.031s ago	
+http://10.8.0.21:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.21:9292" kubernetes_name="production-ui" kubernetes_namespace="production" release="production"	5.952s ago	
+http://10.8.0.23:9292/metrics
+UP	app="reddit" component="comment" instance="10.8.0.23:9292" kubernetes_name="staging-comment" kubernetes_namespace="staging" release="staging"	2.805s ago	
+http://10.8.0.24:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.24:9292" kubernetes_name="staging-ui" kubernetes_namespace="staging" release="staging"	3.784s ago	
+http://10.8.1.3:5000/metrics
+UP	app="reddit" component="post" instance="10.8.1.3:5000" kubernetes_name="reddit-test-post" kubernetes_namespace="default" release="reddit-test"	17.092s ago	
+http://10.8.1.4:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.1.4:9292" kubernetes_name="reddit-test-ui" kubernetes_namespace="default" release="reddit-test"	9.948s ago	
+http://10.8.1.5:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.1.5:9292" kubernetes_name="staging-ui" kubernetes_namespace="staging" release="staging"	18.888s ago	
+http://10.8.2.5:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.2.5:9292" kubernetes_name="reddit-test-ui" kubernetes_namespace="default" release="reddit-test"	23.992s ago	
+http://10.8.2.6:5000/metrics
+UP	app="reddit" component="post" instance="10.8.2.6:5000" kubernetes_name="staging-post" kubernetes_namespace="staging" release="staging"	29.739s ago	
+http://10.8.2.7:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.2.7:9292" kubernetes_name="staging-ui" kubernetes_namespace="staging" release="staging"	11.297s ago
+```
+
+* Сейчас мы собираем метрики со всех сервисов reddit’а в 1 группе target-ов. Мы можем отделить target-ы компонент друг от друга (по окружениям, по самим компонентам), а также выключать и включать опцию мониторинга для них с помощью все тех же label-ов. Например, добавим в конфиг еще один job
+```
+- job_name: 'reddit-production'
+   kubernetes_sd_configs:
+     - role: endpoints
+   relabel_configs:
+     - action: labelmap
+       regex: __meta_kubernetes_service_label_(.+)
+     - source_labels: [__meta_kubernetes_service_label_app, __meta_kubernetes_namespace]
+       action: keep
+       regex: reddit;(production|staging)+
+     - source_labels: [__meta_kubernetes_namespace]
+       target_label: kubernetes_namespace
+     - source_labels: [__meta_kubernetes_service_name]
+       target_label: kubernetes_name
+```
+
+Обновим релиз prometheus и посмотрим, что же получилось
+```
+http://10.8.0.14:9292/metrics
+UP	app="reddit" component="comment" instance="10.8.0.14:9292" kubernetes_name="reddit-test-comment" kubernetes_namespace="default" release="reddit-test"	18.652s ago	
+http://10.8.0.15:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.15:9292" kubernetes_name="reddit-test-ui" kubernetes_namespace="default" release="reddit-test"	8.342s ago	
+http://10.8.0.17:9292/metrics
+UP	app="reddit" component="comment" instance="10.8.0.17:9292" kubernetes_name="production-comment" kubernetes_namespace="production" release="production"	14.513s ago	
+http://10.8.0.18:5000/metrics
+UP	app="reddit" component="post" instance="10.8.0.18:5000" kubernetes_name="production-post" kubernetes_namespace="production" release="production"	24.964s ago	
+http://10.8.0.19:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.19:9292" kubernetes_name="production-ui" kubernetes_namespace="production" release="production"	14.492s ago	
+http://10.8.0.20:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.20:9292" kubernetes_name="production-ui" kubernetes_namespace="production" release="production"	19.757s ago	
+http://10.8.0.21:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.21:9292" kubernetes_name="production-ui" kubernetes_namespace="production" release="production"	678ms ago	
+http://10.8.0.23:9292/metrics
+UP	app="reddit" component="comment" instance="10.8.0.23:9292" kubernetes_name="staging-comment" kubernetes_namespace="staging" release="staging"	27.529s ago	
+http://10.8.0.24:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.24:9292" kubernetes_name="staging-ui" kubernetes_namespace="staging" release="staging"	28.509s ago	
+http://10.8.1.3:5000/metrics
+UP	app="reddit" component="post" instance="10.8.1.3:5000" kubernetes_name="reddit-test-post" kubernetes_namespace="default" release="reddit-test"	11.817s ago	
+http://10.8.1.4:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.1.4:9292" kubernetes_name="reddit-test-ui" kubernetes_namespace="default" release="reddit-test"	4.673s ago	
+http://10.8.1.5:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.1.5:9292" kubernetes_name="staging-ui" kubernetes_namespace="staging" release="staging"	13.613s ago	
+http://10.8.2.5:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.2.5:9292" kubernetes_name="reddit-test-ui" kubernetes_namespace="default" release="reddit-test"	18.716s ago	
+http://10.8.2.6:5000/metrics
+UP	app="reddit" component="post" instance="10.8.2.6:5000" kubernetes_name="staging-post" kubernetes_namespace="staging" release="staging"	24.463s ago	
+http://10.8.2.7:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.2.7:9292" kubernetes_name="staging-ui" kubernetes_namespace="staging" release="staging"	6.022s ago
+```
+
+*Теперь метрики будут отображаться для всех инстансов приложений.*
+
+* Задание: разбейте конфигурацию job’а reddit-endpoints так, чтобы было 3 job’а для каждой из компонент приложений (post-endpoints, comment-endpoints, ui-endpoints), а reddit-endpoints уберите.
 
 
 
