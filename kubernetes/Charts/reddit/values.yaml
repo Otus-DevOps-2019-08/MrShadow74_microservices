@@ -1,0 +1,25 @@
+---
+comment:
+  image:
+    repository: mrshadow74/comment
+    tag: latest
+  service:
+    externalPort: 9292
+
+post:
+  image:
+    repository: mrshadow74/post
+    tag: latest
+  service:
+    externalPort: 5000
+
+ui:
+  image:
+    repository: mrshadow74/ui
+    tag: latest
+  service:
+    externalPort: 9292
+
+mongodb:
+  usePassword: false
+
