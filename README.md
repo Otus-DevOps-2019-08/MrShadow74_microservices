@@ -8170,7 +8170,7 @@ production:
 
 * Файл `.gitlab-ci.yml` проекта reddit-deploy помещен в каталог `kubernetes/Charts`
 
-# Kubernetes. Мониторинг и логирование
+# Homework 23. Kubernetes. Мониторинг и логирование
 
 У вас должен быть развернуть кластер k8s:
  - минимум 2 ноды g1-small (1,5 ГБ)
@@ -8320,7 +8320,7 @@ $ cd kubernetes/Charts && helm fetch --untar stable/prometheus
 
 * Запустим Prometheus в k8s из charsts/prometheus
 ```
-s$ helm upgrade prom . -f custom_values.yml --install                                  [26/1801]
+$ helm upgrade prom . -f custom_values.yml --install                               
 Release "prom" does not exist. Installing it now.
 NAME:   prom
 LAST DEPLOYED: Mon Jan 13 14:15:06 2020
@@ -8769,9 +8769,157 @@ UP	app="reddit" component="ui" instance="10.8.2.7:9292" kubernetes_name="staging
             target_label: kubernetes_name
 ```
 
+## Визуализация
+
+Поставим также *grafana* с помощью helm
+```
+$ helm upgrade --install grafana stable/grafana --set "adminPassword=admin" \
+> --set "service.type=NodePort" \
+> --set "ingress.enabled=true" \
+> --set "ingress.hosts={reddit-grafana}"
+Release "grafana" does not exist. Installing it now.                                                                                                          [210/1975]
+NAME:   grafana
+E0115 09:16:20.573225   81781 portforward.go:372] error copying from remote stream to local connection: readfrom tcp4 127.0.0.1:42143->127.0.0.1:33306: write tcp4 127.0
+.0.1:42143->127.0.0.1:33306: write: broken pipe
+LAST DEPLOYED: Wed Jan 15 09:16:19 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+
+RESOURCES:
+==> v1/ClusterRole
+NAME                 AGE
+grafana-clusterrole  2s
+
+==> v1/ClusterRoleBinding
+NAME                        AGE
+grafana-clusterrolebinding  2s
+
+==> v1/ConfigMap
+NAME          AGE
+grafana       2s
+grafana-test  2s
+
+==> v1/Deployment
+NAME     AGE
+grafana  2s
+
+==> v1/Pod(related)
+NAME                      AGE
+grafana-55966597c9-msszh  2s
+
+==> v1/Role
+NAME          AGE
+grafana-test  2s
+
+==> v1/RoleBinding
+NAME          AGE
+grafana-test  2s
+
+==> v1/Secret
+NAME     AGE
+grafana  2s
+
+==> v1/Service
+NAME     AGE
+grafana  2s
+
+==> v1/ServiceAccount
+NAME          AGE
+grafana       2s
+grafana-test  2s
+
+==> v1beta1/Ingress
+NAME     AGE
+grafana  2s
+
+==> v1beta1/PodSecurityPolicy
+NAME          AGE
+grafana       2s
+grafana-test  2s
+
+==> v1beta1/Role
+NAME     AGE
+grafana  2s
+
+==> v1beta1/RoleBinding
+NAME     AGE
+grafana  2s
 
 
+NOTES:
+1. Get your 'admin' user password by running:
 
+   kubectl get secret --namespace default grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
+
+2. The Grafana server can be accessed via port 80 on the following DNS name from within your cluster:
+
+   grafana.default.svc.cluster.local
+   If you bind grafana to 80, please update values in values.yaml and reinstall:                                                                              [144/1987]
+   ```
+   securityContext:
+     runAsUser: 0
+     fsGroup: 0
+
+   command:
+   - "setcap"
+   - "'cap_net_bind_service=+ep'"
+   - "/usr/sbin/grafana-server &&"
+   - "sh"
+   - "/run.sh"
+   ```
+   Details refer to https://grafana.com/docs/installation/configuration/#http-port.
+   Or grafanfa would always crash.
+
+   From outside the cluster, the server URL(s) are:
+     http://reddit-grafana
+
+3. Login with the password from step 1 and the username: admin
+#################################################################################
+######   WARNING: Persistence is disabled!!! You will lose your data when   #####
+######            the Grafana pod is terminated.                            #####
+#################################################################################
+```
+
+По завершению установки имеем следующее:
+```
+$ kubectl get svc
+NAME                                  TYPE           CLUSTER-IP    EXTERNAL-IP     PORT(S)                      AGE
+grafana                               NodePort       10.0.6.156    <none>          80:32510/TCP                 19m
+kubernetes                            ClusterIP      10.0.0.1      <none>          443/TCP                      32m
+nginx-nginx-ingress-controller        LoadBalancer   10.0.0.9      34.89.184.112   80:32170/TCP,443:32226/TCP   22m
+nginx-nginx-ingress-default-backend   ClusterIP      10.0.11.174   <none>          80/TCP                       22m
+prom-prometheus-kube-state-metrics    ClusterIP      None          <none>          80/TCP                       19m
+prom-prometheus-node-exporter         ClusterIP      None          <none>          9100/TCP                     19m
+prom-prometheus-server                LoadBalancer   10.0.3.26     35.246.131.14   80:31042/TCP                 19m
+
+$ helm ls
+NAME            REVISION        UPDATED                         STATUS          CHART                   APP VERSION     NAMESPACE
+grafana         1               Wed Jan 15 09:16:19 2020        DEPLOYED        grafana-4.3.0           6.5.2           default
+nginx           1               Wed Jan 15 09:12:58 2020        DEPLOYED        nginx-ingress-1.29.1    0.27.0          default
+production      1               Wed Jan 15 09:19:09 2020        DEPLOYED        reddit-0.1.0                            production
+prom            1               Wed Jan 15 09:15:54 2020        DEPLOYED        prometheus-10.0.0       2.15.2          default
+```
+
+* Зайдем в интерфейс Grafana `http://reddit-grafana`, логин и пароль нами заданы admin/admin
+* Добавим DataSource Prometheus, в качестве строки подключения берем `http://prom-prometheus-server`
+* Добавим самый распространенный дашбоард для отслеживания состояния ресурсов k8s `https://grafana.com/grafana/dashboards/315`
+
+Добавим собственные дашборды, созданные ранее в ДЗ по мониторингу. Они должны также успешно отобразить данные. В текущий момент на графиках, относящихся к приложению, одновременно отображены значения метрик со всех источников сразу. При большом количестве сред и при их динамичном изменении имеет смысл сделать динамичной и удобно настройку наших дашбордов в Grafana. Сделать это можно в нашем случае с помощью механизма templating’а.
+
+* Создадим новую переменную *namespace*:
+```
+ - name=namespace,                 # имя переменной
+ - type=query                      # тип запроса
+ - label=Env                       # как ее будем видеть мы
+ - DataSource=Prometheus           # источник данных
+ - Refresh=On Dashboard Load       # момент обновления
+ - Query=label_values(namespace)   # получить значения всех лэйблов kubernetes_namespace
+ - Regex=/.+/                      # отфильтруем, убрав пустой namespace
+ - Multi-value=+                   # возможность выбрать несколько значений
+ - Include All option=+            # возможность выбирать все значения одной кнопкой
+```
+
+У нас повился список со значениями переменной. И пока что они бесполезны и чтобы их использование имело эффект нужно шаблонизировать запросы к Prometheus.
 
 
 
