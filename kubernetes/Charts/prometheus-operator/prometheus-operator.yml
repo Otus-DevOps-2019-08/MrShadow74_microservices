@@ -1,0 +1,19 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: post
+  labels:
+    team: frontend
+spec:
+  selector:
+    matchLabels:
+      component: post
+    namespaceSelector:
+      matchNames:
+      - production
+      - staging
+  endpoints:
+  - targetPort: 5000
+    interval: 30s
+    path: /metrics
+    scheme: http 

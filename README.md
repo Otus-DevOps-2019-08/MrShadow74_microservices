@@ -9011,11 +9011,116 @@ prom-prometheus-node-exporter         ClusterIP      None          <none>       
 prom-prometheus-server                LoadBalancer   10.0.3.26     35.246.131.14   80:31042/TCP                 4h6m
 ```
 
+### Задание со *
+* Установите в кластер Prometheus Operator (пошаговая инструкция `https://github.com/helm/charts/tree/master/stable/prometheus-operator` или helm chart). Настройте мониторинг post endpoints, приложите используемый манифест serviceMonitor.
+
+* Решение
+```
+$ helm install --name prom-operator stable/prometheus-operator
+$ kubectl apply -f kubernetes/prometheus-operator/prometheus-operator.yml
+```
+
+## Логирование
+
+* Подготовка
+
+1. Данную часть ДЗ рекомендуется выполянять уже после выполения ДЗ No 25 (по логированию), наработки из которого используюстя в данной работе.
+2. Выполнение данной части ДЗ не является обязательным.
+3. Добавьте label самой мощной ноде в кластере.
+```
+$ kubectl label node gke-kuber-gke-bigpool-4bf88708-6s2z elastichost=true
+node/gke-kuber-gke-bigpool-4bf88708-6s2z labeled
+```
+
+### Стек
+Логирование в k8s будем выстраивать с помощью уже известного стека EFK:
+ElasticSearch - база данных + поисковый движок
+Fluentd - шипер (отправитель) и агрегатор логов
+Kibana - веб-интерфейс для запросов в хранилище и отображения их результатов
+
+### EFK
+Создайте файлы в новой папке *kubernetes/efk/*
+```
+fluentd-ds.yaml
+fluentd-configmap.yaml
+es-service.yaml
+es-statefulSet.yaml
+es-pvc.yaml
+```
+
+* Запустим стек в вашем k8s
+```
+$ kubectl apply -f ./efk
+persistentvolumeclaim/elasticsearch-logging-claim created
+service/elasticsearch-logging created
+statefulset.apps/elasticsearch-logging created
+configmap/fluentd-es-config-v0.1.1 created
+daemonset.apps/fluentd-es-v2.0.2 created
+```
+
+* Kibana поставим из helm чарта
+```
+$ helm upgrade --install kibana stable/kibana \
+> --set "ingress.enabled=true" \
+> --set "ingress.hosts={reddit-kibana}" \
+> --set "env.ELASTICSEARCH_URL=http://elasticsearch-logging:9200" \
+> --version 0.1.1
+Release "kibana" does not exist. Installing it now.
+NAME:   kibana
+LAST DEPLOYED: Wed Jan 15 14:57:01 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+
+RESOURCES:
+==> v1/Pod(related)
+NAME                     AGE
+kibana-65f8986c64-bzw9t  1s
+
+==> v1/Service
+NAME    AGE
+kibana  1s
+
+==> v1beta1/Deployment
+NAME    AGE
+kibana  1s
+
+==> v1beta1/Ingress
+NAME    AGE
+kibana  1s
 
 
+NOTES:
+To verify that oauth-proxy has started, run:
 
+  kubectl --namespace=default get pods -l "app=kibana"
+```
 
+Проверим
+```
+$ kubectl --namespace=default get pods -l "app=kibana"
+NAME                      READY   STATUS    RESTARTS   AGE
+kibana-65f8986c64-fpkk7   1/1     Running   0          3m5s
+```
 
+* Откроем `http://reddit-kibana/`, создадим шаблон индекса
+* Откроем вкладку Discover в Kibana и введите в строку поиска выражение
+```
+kubernetes.labels.component:post OR kubernetes.labels.component:comment OR
+kubernetes.labels.component:ui
+```
+* Откроем любой из результатов поиска - в нем видно множество инфы о k8s.
 
+1. Особенность работы fluentd в k8s состоит в том, что его задача помимо сбора самих логов приложений, сервисов и хостов, также распознать дополнительные метаданные (как правило это дополнительные поля с лейблами)
+2. Откуда и какие логи собирает fluentd - видно в его `fluentdconfigmap.yaml` и в `fluentd-ds.yaml`
 
+## Задание со *
+
+* Создайте Helm-чарт для установки стека EFK и поместите в директорию charts
+* Решение в `./kubernetes/Charts/efk$`
+```
+$ helm repo add elastic https://helm.elastic.co
+$ helm install --name elasticsearch -f kubernetes/Charts/EFK/elasticsearch_custom_values.yaml elastic/elasticsearch
+$ helm install --name kibana -f kubernetes/Charts/EFK/kibana_custom_values.yaml elastic/kibana
+$ helm install --name fluend stable/fluentd
+```
 
