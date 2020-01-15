@@ -8921,6 +8921,100 @@ prom            1               Wed Jan 15 09:15:54 2020        DEPLOYED        
 
 У нас повился список со значениями переменной. И пока что они бесполезны и чтобы их использование имело эффект нужно шаблонизировать запросы к Prometheus.
 
+### Смешанные графики
+* Импортируем следующий график `https://grafana.com/dashboards/741`. На этом графике одновременно используются метрики и шаблоны из *cAdvisor*, и из *kube-state-metrics* для отображения сводной информации по деплойментам.
+
+### Задание со*
+В целом, принципы работы с инструментами не поменялись. Добавились лишь особенности, поэтому мы можем использовать старые наработки и для k8s. Задание: запустить alertmanager в k8s и настроить правила для контроля за доступностью api-сервера и хостов k8s. P.S. не забудьте, что формат описания правил в версии 2.0 изменился на yaml.
+
+* Решение задачи
+Внесем изменения в файл конфигурайии Prometheus `custom_values.yml`
+```
+rbac:
+  create: false
+
+alertmanager:
+  ## If false, alertmanager will not be installed
+  ##
+  enabled: true				# включим altermanager
+...
+## alertmanager ConfigMap entries	# скорректируем конфиг
+##
+alertmanagerFiles:
+  alertmanager.yml: |-
+    global:
+      slack_api_url: 'https://hooks.slack.com/services/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'
+
+    receivers:
+      - name: slack-notification
+        slack_configs:
+          - channel: '#anton_emelianov'
+            send_resolved: true
+
+    route:
+      group_wait: 10s
+      group_interval: 5m
+      receiver: slack-notification
+      repeat_interval: 3h
+...
+serverFiles:
+  alerts:		
+    groups:
+# Alert rules for controlling availability of APIServer
+    - name: APIServers
+      rules:
+      - alert: InstanceAPIServerDown
+        expr: up{job="kubernetes-apiservers"} == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          description: '{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 1 minute'
+          summary: 'Instance API server {{ $labels.instance }} down'
+
+# Alert rules for controlling availability of nodes
+    - name: Nodes
+      rules:
+      - alert: InstanceDown
+        expr: up{job="kubernetes-nodes"} == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          description: '{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 1 minutes'
+          summary: 'Instance {{ $labels.instance }} down'
+...
+# Alert rules for controlling availability of nodes
+    - name: Namespace
+      rules:
+      - alert: NamespaceDown
+        expr: up{job="kube_namespace_labels"} == 0
+        for: 30s
+        labels:
+          severity: page
+        annotations:
+          description: '{{ $kube_namespace_labels }} of job {{ $labels.job }} has been down for more than 30 second'
+          summary: 'Namespace {{ $labels.Namespace }} down'
+```
+
+* Посмотрим результат
+```
+$ kubectl get svc
+NAME                                  TYPE           CLUSTER-IP    EXTERNAL-IP     PORT(S)                      AGE
+grafana                               NodePort       10.0.6.156    <none>          80:32510/TCP                 4h5m
+kubernetes                            ClusterIP      10.0.0.1      <none>          443/TCP                      4h18m
+nginx-nginx-ingress-controller        LoadBalancer   10.0.0.9      34.89.184.112   80:32170/TCP,443:32226/TCP   4h8m
+nginx-nginx-ingress-default-backend   ClusterIP      10.0.11.174   <none>          80/TCP                       4h8m
+prom-prometheus-alertmanager          ClusterIP      10.0.3.60     <none>          80/TCP                       113s
+prom-prometheus-kube-state-metrics    ClusterIP      None          <none>          80/TCP                       4h6m
+prom-prometheus-node-exporter         ClusterIP      None          <none>          9100/TCP                     4h6m
+prom-prometheus-server                LoadBalancer   10.0.3.26     35.246.131.14   80:31042/TCP                 4h6m
+```
+
+
+
+
+
 
 
 
