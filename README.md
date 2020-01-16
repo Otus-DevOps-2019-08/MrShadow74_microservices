@@ -8170,4 +8170,957 @@ production:
 
 * Файл `.gitlab-ci.yml` проекта reddit-deploy помещен в каталог `kubernetes/Charts`
 
+# Homework 23. Kubernetes. Мониторинг и логирование
+
+У вас должен быть развернуть кластер k8s:
+ - минимум 2 ноды g1-small (1,5 ГБ)
+ - минимум 1 нода n1-standard-2 (7,5 ГБ)
+
+В настройках:
+ - Stackdriver Logging - Отключен
+ - Stackdriver Monitoring - Отключен
+ - Устаревшие права доступа - Включено
+
+Из Helm-чарта установим ingress-контроллер nginx
+```
+$ kubectl apply -f tiller.yml
+serviceaccount/tiller created
+clusterrolebinding.rbac.authorization.k8s.io/tiller created
+
+$ helm init --service-account tiller
+$HELM_HOME has been configured
+
+$ helm install stable/nginx-ingress --name nginx                                                 [54/1816]
+NAME:   nginx
+LAST DEPLOYED: Mon Jan 13 13:36:57 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+
+RESOURCES:
+==> v1/ClusterRole
+NAME                 AGE
+nginx-nginx-ingress  1s
+
+==> v1/ClusterRoleBinding
+NAME                 AGE
+nginx-nginx-ingress  1s
+
+==> v1/Deployment
+NAME                                 AGE
+nginx-nginx-ingress-controller       1s
+nginx-nginx-ingress-default-backend  1s
+
+==> v1/Pod(related)
+NAME                                                  AGE
+nginx-nginx-ingress-controller-787986ff47-zz9fq       1s
+nginx-nginx-ingress-default-backend-766d57499b-5x9nq  1s
+
+==> v1/Role
+NAME                 AGE
+nginx-nginx-ingress  1s
+
+==> v1/RoleBinding                                                                                                                                             [25/1816]
+NAME                 AGE
+nginx-nginx-ingress  1s
+
+==> v1/Service
+NAME                                 AGE
+nginx-nginx-ingress-controller       1s
+nginx-nginx-ingress-default-backend  1s
+
+==> v1/ServiceAccount
+NAME                         AGE
+nginx-nginx-ingress          1s
+nginx-nginx-ingress-backend  1s
+
+
+NOTES:
+The nginx-ingress controller has been installed.
+It may take a few minutes for the LoadBalancer IP to be available.
+You can watch the status by running 'kubectl --namespace default get services -o wide -w nginx-nginx-ingress-controller'
+
+An example Ingress that makes use of the controller:
+
+  apiVersion: extensions/v1beta1
+  kind: Ingress
+  metadata:
+    annotations:
+      kubernetes.io/ingress.class: nginx
+    name: example
+    namespace: foo
+  spec:
+    rules:
+      - host: www.example.com
+        http:
+          paths:
+            - backend:
+                serviceName: exampleService
+                servicePort: 80
+              path: /
+    # This section is only required if TLS is to be enabled for the Ingress
+    tls:
+        - hosts:
+            - www.example.com
+          secretName: example-tls
+
+If TLS is enabled for the Ingress, a Secret containing the certificate and key must also be provided:
+
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    name: example-tls
+    namespace: foo
+  data:
+    tls.crt: <base64 encoded cert>
+    tls.key: <base64 encoded key>
+  type: kubernetes.io/tls
+```
+
+Найдем IP-адрес, выданный nginx’у
+```
+$ kubectl get svc
+NAME                                  TYPE           CLUSTER-IP    EXTERNAL-IP      PORT(S)                      AGE
+kubernetes                            ClusterIP      10.0.0.1      <none>           443/TCP                      21m
+nginx-nginx-ingress-controller        LoadBalancer   10.0.7.11     35.246.227.226   80:30413/TCP,443:30064/TCP   3m9s
+nginx-nginx-ingress-default-backend   ClusterIP      10.0.11.237   <none>           80/TCP                       3m9s
+```
+
+Добавим в /etc/hosts
+```
+35.246.227.226 reddit reddit-prometheus reddit-grafana reddit-non-prod production redditkibana staging prod
+```
+
+* План
+Развертывание Prometheus в k8s.
+Настройка Prometheus и Grafana для сбора метрик.
+Настройка EFK для сбора логов.
+
+## Мониторинг
+
+* Стек
+В задании будем использовать уже знакомые нам инструменты:
+ - prometheus - сервер сбора метрик
+ - grafana - сервер визуализации метрик
+ - alertmanager - компонент prometheus для алертинга различные экспортеры для метрик prometheus.
+Prometheus отлично подходит для работы с контейнерами и динамичным размещением сервисов.
+
+### Установим Prometheus
+Prometheus будем ставить с помощью Helm чарта. Загрузим prometheus локально в Charts каталог
+```
+$ cd kubernetes/Charts && helm fetch --untar stable/prometheus
+```
+
+* Создадим внутри директории чарта файл `custom_values.yml` из гиста `https://gist.githubusercontent.com/chromko/2bd290f7becdf707cde836ba1ea6ec5c/raw/c17372866867607cf4a0445eb519f9c2c377a0ba/gistfile1.txt`
+
+Основные отличия от values.yml:
+ - отключена часть устанавливаемых сервисов (pushgateway, alertmanager, kube-state-metrics)
+ - включено создание Ingress’а для подключения через nginx
+ - поправлен endpoint для сбора метрик cadvisor
+ - уменьшен интервал сбора метрик (с 1 минуты до 30 секунд)
+
+* Запустим Prometheus в k8s из charsts/prometheus
+```
+$ helm upgrade prom . -f custom_values.yml --install                               
+Release "prom" does not exist. Installing it now.
+NAME:   prom
+LAST DEPLOYED: Mon Jan 13 14:15:06 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+
+RESOURCES:
+==> v1/ConfigMap
+NAME                    AGE
+prom-prometheus-server  2s
+
+==> v1/Deployment
+NAME                    AGE
+prom-prometheus-server  2s
+
+==> v1/PersistentVolumeClaim
+NAME                    AGE
+prom-prometheus-server  2s
+
+==> v1/Pod(related)
+NAME                                   AGE
+prom-prometheus-server-bdc8df4b-sdl6k  2s
+
+==> v1/Service
+NAME                    AGE
+prom-prometheus-server  2s
+
+==> v1/ServiceAccount
+NAME                    AGE
+prom-prometheus-server  2s
+
+==> v1beta1/Ingress
+NAME                    AGE
+prom-prometheus-server  2s
+
+NOTES:
+The Prometheus server can be accessed via port 80 on the following DNS name from within your cluster:
+prom-prometheus-server.default.svc.cluster.local
+
+From outside the cluster, the server URL(s) are:
+http://reddit-prometheus
+
+#################################################################################
+######   WARNING: Pod Security Policy has been moved to a global property.  #####
+######            use .Values.podSecurityPolicy.enabled with pod-based      #####
+######            annotations                                               #####
+######            (e.g. .Values.nodeExporter.podSecurityPolicy.annotations) #####
+#################################################################################
+
+For more information on running Prometheus, visit:
+https://prometheus.io/
+```
+
+### Targets
+
+В статусах таргетов у нас уже присутствует ряд endpoint’ов для сбора метрик:
+ - сам prometheus
+ - Метрики API-сервера
+ - метрики нод с cadvisor’ов
+
+* Отметим, что можно собирать метрики cadvisor’а (который уже является частью kubelet) через проксирующий запрос в kube-apiserver. Если зайти по ssh на любую из машин кластера и запросить `$ curl http://localhost:4194/metrics`, то мы получим те же метрики у kubelet напрямую. Но вариант с kube-api предпочтительней, т.к. этот трафик
+шифруется TLS и требует аутентификации.
+
+* Таргеты для сбора метрик найдены с помощью *service discovery (SD)*, настроенного в конфиге prometheus *custom-values.yml*.
+```
+prometheus.yml:
+...
+  - job_name: 'kubernetes-apiservers' # kubernetes-apiservers (1/1 up)
+...
+  - job_name: 'kubernetes-nodes' # kubernetes-nodes (3/3 up)
+      kubernetes_sd_configs: # Настройки Service Discovery (для поиска target’ов)
+        - role: node
+      scheme: https # Настройки подключения к target’ам (для сбора метрик)
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        insecure_skip_verify: true
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabel_configs: # Настройки различных меток, фильтрация найденных таргетов, их изменений
+```
+
+Использование SD в kubernetes позволяет нам динамично менять кластер (как сами хосты, так и сервисы и приложения). Цели для мониторинга находим c помощью запросов к k8s API:
+```
+prometheus.yml:
+...
+    scrape_configs:
+      - job_name: 'kubernetes-nodes'
+        kubernetes_sd_configs:
+          - role: node # Role объект, который нужно найти:
+# - node
+# - endpoints
+# - pod
+# - service
+# - ingress
+
+prometheus.yml:
+...
+    scrape_configs:
+    - job_name: 'kubernetes-nodes'
+      kubernetes_sd_configs:
+      - role: node
+```
+
+Т.к. сбор метрик prometheus осуществляется поверх стандартного HTTP-протокола, то могут понадобится доп. настройки для безопасного доступа к метрикам. Ниже приведены настройки для сбора метрик из k8s AP
+```
+scheme: https
+tls_config:
+  ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+  insecure_skip_verify: true
+bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+```
+
+1. Схема подключения - http (default) или https
+2. Конфиг TLS - корневой сертификат сервера для проверки достоверности сервера
+3. Токен для аутентификации на сервере
+
+Targets:
+```
+$ kubectl get nodes
+NAME                                        STATUS   ROLES    AGE   VERSION
+gke-kuber-gke-g1-small-9c85d19b-0p28        Ready    <none>   88m   v1.15.4-gke.22
+gke-kuber-gke-g1-small-9c85d19b-ppz0        Ready    <none>   88m   v1.15.4-gke.22
+gke-kuber-gke-n1-standard-2-fadc5ba8-zzff   Ready    <none>   88m   v1.15.4-gke.22
+```
+
+Подробнее о том, как работает *relabel_config* `https://prometheus.io/docs/prometheus/latest/configuration/configuration/#relabel_config`
+```
+#Kubernetes nodes
+relabel_configs:
+- action: labelmap # преобразовать все k8s лейблы таргета в лейблы prometheus
+  regex: __meta_kubernetes_node_label_(.+)
+- target_label: __address__ # Поменять лейбл для адреса сбора метрик
+  replacement: kubernetes.default.svc:443
+- source_labels: [__meta_kubernetes_node_name] # Поменять лейбл для пути сбора метрик
+  regex: (.+)
+  target_label: __metrics_path__
+  replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+```
+
+* В результате получим лейблы в prometheus.
+
+### Metrics
+
+* Все найденные на эндпоинтах метрики сразу же отобразятся в списке (вкладка Graph). Метрики Cadvisor начинаются с *container_*.
+
+* Cadvisor собирает лишь информацию о потреблении ресурсов и производительности отдельных docker-контейнеров. При этом он ничего не знает о сущностях k8s (деплойменты, репликасеты, ...). Для сбора этой информации будем использовать сервис *kubestate-metrics*. Он входит в чарт Prometheus. Включим его.
+```
+
+##prometheus/custom_values.yml
+...
+kubeStateMetrics:
+  ## If false, kube-state-metrics will not be installed
+  ##
+  enabled: true
+```
+
+И обновим релиз
+```
+$ helm upgrade prom . -f custom_values.yml --install
+Release "prom" has been upgraded.
+LAST DEPLOYED: Mon Jan 13 15:51:19 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+```
+
+* В Таргетсах видим запланированные изменения, в Графах видим добавившиеся метрики *kube_deployment_*.
+
+* По аналогии с *kube_state_metrics* включим поды `node-exporter` в `custom_values.yml`.
+```
+nodeExporter:
+  ## If false, node-exporter will not be installed
+  ##
+  enabled: true
+```
+И применим изменения 
+```
+$ helm upgrade prom . -f custom_values.yml --install
+Release "prom" has been upgraded.
+LAST DEPLOYED: Mon Jan 13 19:49:26 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+```
+
+Проверим, что метрики начали собираться с них - добавились метрики `kube_node_` с данными.
+
+### Метрики приложений
+
+Запустим приложение из helm чарта reddit
+```
+$ helm upgrade reddit-test ./reddit --install
+NAME:   reddit-test
+LAST DEPLOYED: Mon Jan 13 20:07:20 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+
+$ helm upgrade production --namespace production ./reddit --install
+Release "production" does not exist. Installing it now.
+NAME:   production
+LAST DEPLOYED: Mon Jan 13 20:10:37 2020
+NAMESPACE: production
+STATUS: DEPLOYED
+
+$ helm upgrade staging --namespace staging ./reddit --install
+Release "staging" does not exist. Installing it now.
+NAME:   staging
+LAST DEPLOYED: Mon Jan 13 20:11:46 2020
+NAMESPACE: staging
+STATUS: DEPLOYED
+```
+
+Раньше мы “хардкодили” адреса/dns-имена наших приложений для сбора метрик с них.
+```
+##prometheus.yml
+  - job_name: 'ui'
+    static_configs:
+      - targets:
+        - 'ui:9292'
+  - job_name: 'comment'
+    static_configs:
+      - targets:
+        - 'comment:9292'
+```
+* Теперь мы можем использовать механизм *ServiceDiscovery* для обнаружения приложений, запущенных в k8s. Приложения будем искать так же, как и служебные сервисы k8s. Модернизируем конфиг prometheus:
+```
+## custom_values.yml
+     - job_name: 'reddit-endpoints'
+       kubernetes_sd_configs:
+         - role: endpoints
+       relabel_configs:
+         - source_labels: [__meta_kubernetes_service_label_app]
+           action: keep              # Используем действие keep, чтобы оставить
+           regex: reddit             # только эндпоинты сервисов с метками “app=reddit”
+```
+
+* Обновим релиз prometheus
+```
+$ helm upgrade prom . -f custom_values.yml --install
+Release "prom" has been upgraded.
+LAST DEPLOYED: Mon Jan 13 20:45:23 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+```
+
+* Мы получили эндпоинты, но что это за поды мы не знаем. Добавим метки k8s, все лейблы и аннотации k8s изначально отображаются в prometheus в формате:
+```
+__meta_kubernetes_service_label_labelname
+__meta_kubernetes_service_annotation_annotationname
+```
+
+Добавим в наш `custom_values.yml`
+```
+##custom_values.yml
+    relabel_configs:
+        - action: labelmap # Отобразить все совпадения групп
+          regex: __meta_kubernetes_service_label_(.+) # из regex в label’ы Prometheus
+```
+
+* И обновим релиз prometheus
+```
+$ helm upgrade prom . -f custom_values.yml --install
+Release "prom" has been upgraded.
+LAST DEPLOYED: Mon Jan 13 20:59:12 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+```
+
+* Теперь мы видим лейблы k8s, присвоенные POD’ам
+```
+http://10.8.0.14:9292/metrics
+UP	app="reddit" component="comment" instance="10.8.0.14:9292" release="reddit-test"	10.182s ago	
+http://10.8.0.15:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.15:9292" release="reddit-test"	23.923s ago	
+http://10.8.0.17:9292/metrics
+UP	app="reddit" component="comment" instance="10.8.0.17:9292" release="production"	19.518s ago	
+http://10.8.0.18:5000/metrics
+UP	app="reddit" component="post" instance="10.8.0.18:5000" release="production"	9.579s ago	
+http://10.8.0.19:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.19:9292" release="production"	8.178s ago	
+http://10.8.0.20:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.20:9292" release="production"	22.819s ago	
+http://10.8.0.21:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.21:9292" release="production"	28.226s ago	
+http://10.8.0.23:9292/metrics
+UP	app="reddit" component="comment" instance="10.8.0.23:9292" release="staging"	10.996s ago	
+http://10.8.0.24:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.24:9292" release="staging"	3.617s ago	
+http://10.8.1.3:5000/metrics
+UP	app="reddit" component="post" instance="10.8.1.3:5000" release="reddit-test"	11.182s ago	
+http://10.8.1.4:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.1.4:9292" release="reddit-test"	15.764s ago	
+http://10.8.1.5:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.1.5:9292" release="staging"	16.063s ago	
+http://10.8.2.5:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.2.5:9292" release="reddit-test"	7.708s ago	
+http://10.8.2.6:5000/metrics
+UP	app="reddit" component="post" instance="10.8.2.6:5000" release="staging"	22.051s ago	
+http://10.8.2.7:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.2.7:9292" release="staging"	10.995s ago
+```
+
+* Добавим еще label’ы для prometheus и обновим helm-релиз. Т.к. метки вида _meta* не публикуются, то нужно создать свои, перенеся в них информацию.
+```
+- source_labels: [__meta_kubernetes_namespace]
+  target_label: kubernetes_namespace
+- source_labels: [__meta_kubernetes_service_name]
+  target_label: kubernetes_name
+```
+
+* Обновим релиз prometheus и увидим...
+```
+http://10.8.0.14:9292/metrics
+UP	app="reddit" component="comment" instance="10.8.0.14:9292" kubernetes_name="reddit-test-comment" kubernetes_namespace="default" release="reddit-test"	23.926s ago	
+http://10.8.0.15:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.15:9292" kubernetes_name="reddit-test-ui" kubernetes_namespace="default" release="reddit-test"	13.615s ago	
+http://10.8.0.17:9292/metrics
+UP	app="reddit" component="comment" instance="10.8.0.17:9292" kubernetes_name="production-comment" kubernetes_namespace="production" release="production"	19.787s ago	
+http://10.8.0.18:5000/metrics
+UP	app="reddit" component="post" instance="10.8.0.18:5000" kubernetes_name="production-post" kubernetes_namespace="production" release="production"	238ms ago	
+http://10.8.0.19:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.19:9292" kubernetes_name="production-ui" kubernetes_namespace="production" release="production"	19.764s ago	
+http://10.8.0.20:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.20:9292" kubernetes_name="production-ui" kubernetes_namespace="production" release="production"	25.031s ago	
+http://10.8.0.21:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.21:9292" kubernetes_name="production-ui" kubernetes_namespace="production" release="production"	5.952s ago	
+http://10.8.0.23:9292/metrics
+UP	app="reddit" component="comment" instance="10.8.0.23:9292" kubernetes_name="staging-comment" kubernetes_namespace="staging" release="staging"	2.805s ago	
+http://10.8.0.24:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.24:9292" kubernetes_name="staging-ui" kubernetes_namespace="staging" release="staging"	3.784s ago	
+http://10.8.1.3:5000/metrics
+UP	app="reddit" component="post" instance="10.8.1.3:5000" kubernetes_name="reddit-test-post" kubernetes_namespace="default" release="reddit-test"	17.092s ago	
+http://10.8.1.4:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.1.4:9292" kubernetes_name="reddit-test-ui" kubernetes_namespace="default" release="reddit-test"	9.948s ago	
+http://10.8.1.5:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.1.5:9292" kubernetes_name="staging-ui" kubernetes_namespace="staging" release="staging"	18.888s ago	
+http://10.8.2.5:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.2.5:9292" kubernetes_name="reddit-test-ui" kubernetes_namespace="default" release="reddit-test"	23.992s ago	
+http://10.8.2.6:5000/metrics
+UP	app="reddit" component="post" instance="10.8.2.6:5000" kubernetes_name="staging-post" kubernetes_namespace="staging" release="staging"	29.739s ago	
+http://10.8.2.7:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.2.7:9292" kubernetes_name="staging-ui" kubernetes_namespace="staging" release="staging"	11.297s ago
+```
+
+* Сейчас мы собираем метрики со всех сервисов reddit’а в 1 группе target-ов. Мы можем отделить target-ы компонент друг от друга (по окружениям, по самим компонентам), а также выключать и включать опцию мониторинга для них с помощью все тех же label-ов. Например, добавим в конфиг еще один job
+```
+- job_name: 'reddit-production'
+   kubernetes_sd_configs:
+     - role: endpoints
+   relabel_configs:
+     - action: labelmap
+       regex: __meta_kubernetes_service_label_(.+)
+     - source_labels: [__meta_kubernetes_service_label_app, __meta_kubernetes_namespace]
+       action: keep
+       regex: reddit;(production|staging)+
+     - source_labels: [__meta_kubernetes_namespace]
+       target_label: kubernetes_namespace
+     - source_labels: [__meta_kubernetes_service_name]
+       target_label: kubernetes_name
+```
+
+Обновим релиз prometheus и посмотрим, что же получилось
+```
+http://10.8.0.14:9292/metrics
+UP	app="reddit" component="comment" instance="10.8.0.14:9292" kubernetes_name="reddit-test-comment" kubernetes_namespace="default" release="reddit-test"	18.652s ago	
+http://10.8.0.15:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.15:9292" kubernetes_name="reddit-test-ui" kubernetes_namespace="default" release="reddit-test"	8.342s ago	
+http://10.8.0.17:9292/metrics
+UP	app="reddit" component="comment" instance="10.8.0.17:9292" kubernetes_name="production-comment" kubernetes_namespace="production" release="production"	14.513s ago	
+http://10.8.0.18:5000/metrics
+UP	app="reddit" component="post" instance="10.8.0.18:5000" kubernetes_name="production-post" kubernetes_namespace="production" release="production"	24.964s ago	
+http://10.8.0.19:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.19:9292" kubernetes_name="production-ui" kubernetes_namespace="production" release="production"	14.492s ago	
+http://10.8.0.20:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.20:9292" kubernetes_name="production-ui" kubernetes_namespace="production" release="production"	19.757s ago	
+http://10.8.0.21:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.21:9292" kubernetes_name="production-ui" kubernetes_namespace="production" release="production"	678ms ago	
+http://10.8.0.23:9292/metrics
+UP	app="reddit" component="comment" instance="10.8.0.23:9292" kubernetes_name="staging-comment" kubernetes_namespace="staging" release="staging"	27.529s ago	
+http://10.8.0.24:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.0.24:9292" kubernetes_name="staging-ui" kubernetes_namespace="staging" release="staging"	28.509s ago	
+http://10.8.1.3:5000/metrics
+UP	app="reddit" component="post" instance="10.8.1.3:5000" kubernetes_name="reddit-test-post" kubernetes_namespace="default" release="reddit-test"	11.817s ago	
+http://10.8.1.4:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.1.4:9292" kubernetes_name="reddit-test-ui" kubernetes_namespace="default" release="reddit-test"	4.673s ago	
+http://10.8.1.5:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.1.5:9292" kubernetes_name="staging-ui" kubernetes_namespace="staging" release="staging"	13.613s ago	
+http://10.8.2.5:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.2.5:9292" kubernetes_name="reddit-test-ui" kubernetes_namespace="default" release="reddit-test"	18.716s ago	
+http://10.8.2.6:5000/metrics
+UP	app="reddit" component="post" instance="10.8.2.6:5000" kubernetes_name="staging-post" kubernetes_namespace="staging" release="staging"	24.463s ago	
+http://10.8.2.7:9292/metrics
+UP	app="reddit" component="ui" instance="10.8.2.7:9292" kubernetes_name="staging-ui" kubernetes_namespace="staging" release="staging"	6.022s ago
+```
+
+*Теперь метрики будут отображаться для всех инстансов приложений.*
+
+* Задание: разбейте конфигурацию job’а reddit-endpoints так, чтобы было 3 job’а для каждой из компонент приложений (post-endpoints, comment-endpoints, ui-endpoints), а reddit-endpoints уберите.
+* Решение
+```
+## custom_values.yml
+      - job_name: 'reddit-post-endpoints'
+
+
+        kubernetes_sd_configs:
+          - role: endpoints
+
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app]
+            action: keep                                 # Используем действие keep, чтобы оставить
+            regex: post                                  # только эндпоинты сервисов с метками “app=post”
+          - action: labelmap                             # Отобразить все совпадения групп
+            regex: __meta_kubernetes_service_label_(.+)  # из regex в label’ы Prometheus
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: kubernetes_namespace
+
+      ## custom_values.yml
+      - job_name: 'reddit-comment-endpoints'
+
+        kubernetes_sd_configs:
+          - role: endpoints
+
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app]
+            action: keep                                 # Используем действие keep, чтобы оставить
+            regex: comment                               # только эндпоинты сервисов с метками “app=comment”
+          - action: labelmap                             # Отобразить все совпадения групп
+            regex: __meta_kubernetes_service_label_(.+)  # из regex в label’ы Prometheus
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: kubernetes_name
+
+      ## custom_values.yml
+      - job_name: 'reddit-ui-endpoints'
+
+        kubernetes_sd_configs:
+          - role: endpoints
+
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app]
+            action: keep                                 # Используем действие keep, чтобы оставить
+            regex: ui                                    # только эндпоинты сервисов с метками “app=ui”
+          - action: labelmap                             # Отобразить все совпадения групп
+            regex: __meta_kubernetes_service_label_(.+)  # из regex в label’ы Prometheus
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: kubernetes_name
+```
+
+## Визуализация
+
+Поставим также *grafana* с помощью helm
+```
+$ helm upgrade --install grafana stable/grafana --set "adminPassword=admin" \
+> --set "service.type=NodePort" \
+> --set "ingress.enabled=true" \
+> --set "ingress.hosts={reddit-grafana}"
+Release "grafana" does not exist. Installing it now.                                                                                                          [210/1975]
+NAME:   grafana
+E0115 09:16:20.573225   81781 portforward.go:372] error copying from remote stream to local connection: readfrom tcp4 127.0.0.1:42143->127.0.0.1:33306: write tcp4 127.0
+.0.1:42143->127.0.0.1:33306: write: broken pipe
+LAST DEPLOYED: Wed Jan 15 09:16:19 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+
+RESOURCES:
+==> v1/ClusterRole
+NAME                 AGE
+grafana-clusterrole  2s
+
+==> v1/ClusterRoleBinding
+NAME                        AGE
+grafana-clusterrolebinding  2s
+
+==> v1/ConfigMap
+NAME          AGE
+grafana       2s
+grafana-test  2s
+
+==> v1/Deployment
+NAME     AGE
+grafana  2s
+
+==> v1/Pod(related)
+NAME                      AGE
+grafana-55966597c9-msszh  2s
+
+==> v1/Role
+NAME          AGE
+grafana-test  2s
+
+==> v1/RoleBinding
+NAME          AGE
+grafana-test  2s
+
+==> v1/Secret
+NAME     AGE
+grafana  2s
+
+==> v1/Service
+NAME     AGE
+grafana  2s
+
+==> v1/ServiceAccount
+NAME          AGE
+grafana       2s
+grafana-test  2s
+
+==> v1beta1/Ingress
+NAME     AGE
+grafana  2s
+
+==> v1beta1/PodSecurityPolicy
+NAME          AGE
+grafana       2s
+grafana-test  2s
+
+==> v1beta1/Role
+NAME     AGE
+grafana  2s
+
+==> v1beta1/RoleBinding
+NAME     AGE
+grafana  2s
+
+
+NOTES:
+1. Get your 'admin' user password by running:
+
+   kubectl get secret --namespace default grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
+
+2. The Grafana server can be accessed via port 80 on the following DNS name from within your cluster:
+
+   grafana.default.svc.cluster.local
+   If you bind grafana to 80, please update values in values.yaml and reinstall:                                                                              [144/1987]
+   ```
+   securityContext:
+     runAsUser: 0
+     fsGroup: 0
+
+   command:
+   - "setcap"
+   - "'cap_net_bind_service=+ep'"
+   - "/usr/sbin/grafana-server &&"
+   - "sh"
+   - "/run.sh"
+   ```
+   Details refer to https://grafana.com/docs/installation/configuration/#http-port.
+   Or grafanfa would always crash.
+
+   From outside the cluster, the server URL(s) are:
+     http://reddit-grafana
+
+3. Login with the password from step 1 and the username: admin
+#################################################################################
+######   WARNING: Persistence is disabled!!! You will lose your data when   #####
+######            the Grafana pod is terminated.                            #####
+#################################################################################
+```
+
+По завершению установки имеем следующее:
+```
+$ kubectl get svc
+NAME                                  TYPE           CLUSTER-IP    EXTERNAL-IP     PORT(S)                      AGE
+grafana                               NodePort       10.0.6.156    <none>          80:32510/TCP                 19m
+kubernetes                            ClusterIP      10.0.0.1      <none>          443/TCP                      32m
+nginx-nginx-ingress-controller        LoadBalancer   10.0.0.9      34.89.184.112   80:32170/TCP,443:32226/TCP   22m
+nginx-nginx-ingress-default-backend   ClusterIP      10.0.11.174   <none>          80/TCP                       22m
+prom-prometheus-kube-state-metrics    ClusterIP      None          <none>          80/TCP                       19m
+prom-prometheus-node-exporter         ClusterIP      None          <none>          9100/TCP                     19m
+prom-prometheus-server                LoadBalancer   10.0.3.26     35.246.131.14   80:31042/TCP                 19m
+
+$ helm ls
+NAME            REVISION        UPDATED                         STATUS          CHART                   APP VERSION     NAMESPACE
+grafana         1               Wed Jan 15 09:16:19 2020        DEPLOYED        grafana-4.3.0           6.5.2           default
+nginx           1               Wed Jan 15 09:12:58 2020        DEPLOYED        nginx-ingress-1.29.1    0.27.0          default
+production      1               Wed Jan 15 09:19:09 2020        DEPLOYED        reddit-0.1.0                            production
+prom            1               Wed Jan 15 09:15:54 2020        DEPLOYED        prometheus-10.0.0       2.15.2          default
+```
+
+* Зайдем в интерфейс Grafana `http://reddit-grafana`, логин и пароль нами заданы admin/admin
+* Добавим DataSource Prometheus, в качестве строки подключения берем `http://prom-prometheus-server`
+* Добавим самый распространенный дашбоард для отслеживания состояния ресурсов k8s `https://grafana.com/grafana/dashboards/315`
+
+Добавим собственные дашборды, созданные ранее в ДЗ по мониторингу. Они должны также успешно отобразить данные. В текущий момент на графиках, относящихся к приложению, одновременно отображены значения метрик со всех источников сразу. При большом количестве сред и при их динамичном изменении имеет смысл сделать динамичной и удобно настройку наших дашбордов в Grafana. Сделать это можно в нашем случае с помощью механизма templating’а.
+
+* Создадим новую переменную *namespace*:
+```
+ - name=namespace,                 # имя переменной
+ - type=query                      # тип запроса
+ - label=Env                       # как ее будем видеть мы
+ - DataSource=Prometheus           # источник данных
+ - Refresh=On Dashboard Load       # момент обновления
+ - Query=label_values(namespace)   # получить значения всех лэйблов kubernetes_namespace
+ - Regex=/.+/                      # отфильтруем, убрав пустой namespace
+ - Multi-value=+                   # возможность выбрать несколько значений
+ - Include All option=+            # возможность выбирать все значения одной кнопкой
+```
+
+У нас повился список со значениями переменной. И пока что они бесполезны и чтобы их использование имело эффект нужно шаблонизировать запросы к Prometheus.
+
+### Смешанные графики
+* Импортируем следующий график `https://grafana.com/dashboards/741`. На этом графике одновременно используются метрики и шаблоны из *cAdvisor*, и из *kube-state-metrics* для отображения сводной информации по деплойментам.
+
+### Задание со*
+В целом, принципы работы с инструментами не поменялись. Добавились лишь особенности, поэтому мы можем использовать старые наработки и для k8s. Задание: запустить alertmanager в k8s и настроить правила для контроля за доступностью api-сервера и хостов k8s. P.S. не забудьте, что формат описания правил в версии 2.0 изменился на yaml.
+
+* Решение задачи
+Внесем изменения в файл конфигурайии Prometheus `custom_values.yml`
+```
+rbac:
+  create: false
+
+alertmanager:
+  ## If false, alertmanager will not be installed
+  ##
+  enabled: true				# включим altermanager
+...
+## alertmanager ConfigMap entries	# скорректируем конфиг
+##
+alertmanagerFiles:
+  alertmanager.yml: |-
+    global:
+      slack_api_url: 'https://hooks.slack.com/services/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'
+
+    receivers:
+      - name: slack-notification
+        slack_configs:
+          - channel: '#anton_emelianov'
+            send_resolved: true
+
+    route:
+      group_wait: 10s
+      group_interval: 5m
+      receiver: slack-notification
+      repeat_interval: 3h
+...
+serverFiles:
+  alerts:		
+    groups:
+# Alert rules for controlling availability of APIServer
+    - name: APIServers
+      rules:
+      - alert: InstanceAPIServerDown
+        expr: up{job="kubernetes-apiservers"} == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          description: '{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 1 minute'
+          summary: 'Instance API server {{ $labels.instance }} down'
+
+# Alert rules for controlling availability of nodes
+    - name: Nodes
+      rules:
+      - alert: InstanceDown
+        expr: up{job="kubernetes-nodes"} == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          description: '{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 1 minutes'
+          summary: 'Instance {{ $labels.instance }} down'
+...
+# Alert rules for controlling availability of nodes
+    - name: Namespace
+      rules:
+      - alert: NamespaceDown
+        expr: up{job="kube_namespace_labels"} == 0
+        for: 30s
+        labels:
+          severity: page
+        annotations:
+          description: '{{ $kube_namespace_labels }} of job {{ $labels.job }} has been down for more than 30 second'
+          summary: 'Namespace {{ $labels.Namespace }} down'
+```
+
+* Посмотрим результат
+```
+$ kubectl get svc
+NAME                                  TYPE           CLUSTER-IP    EXTERNAL-IP     PORT(S)                      AGE
+grafana                               NodePort       10.0.6.156    <none>          80:32510/TCP                 4h5m
+kubernetes                            ClusterIP      10.0.0.1      <none>          443/TCP                      4h18m
+nginx-nginx-ingress-controller        LoadBalancer   10.0.0.9      34.89.184.112   80:32170/TCP,443:32226/TCP   4h8m
+nginx-nginx-ingress-default-backend   ClusterIP      10.0.11.174   <none>          80/TCP                       4h8m
+prom-prometheus-alertmanager          ClusterIP      10.0.3.60     <none>          80/TCP                       113s
+prom-prometheus-kube-state-metrics    ClusterIP      None          <none>          80/TCP                       4h6m
+prom-prometheus-node-exporter         ClusterIP      None          <none>          9100/TCP                     4h6m
+prom-prometheus-server                LoadBalancer   10.0.3.26     35.246.131.14   80:31042/TCP                 4h6m
+```
+
+### Задание со *
+* Установите в кластер Prometheus Operator (пошаговая инструкция `https://github.com/helm/charts/tree/master/stable/prometheus-operator` или helm chart). Настройте мониторинг post endpoints, приложите используемый манифест serviceMonitor.
+
+* Решение
+```
+$ helm install --name prom-operator stable/prometheus-operator
+$ kubectl apply -f kubernetes/prometheus-operator/prometheus-operator.yml
+```
+
+## Логирование
+
+* Подготовка
+
+1. Данную часть ДЗ рекомендуется выполянять уже после выполения ДЗ No 25 (по логированию), наработки из которого используюстя в данной работе.
+2. Выполнение данной части ДЗ не является обязательным.
+3. Добавьте label самой мощной ноде в кластере.
+```
+$ kubectl label node gke-kuber-gke-bigpool-4bf88708-6s2z elastichost=true
+node/gke-kuber-gke-bigpool-4bf88708-6s2z labeled
+```
+
+### Стек
+Логирование в k8s будем выстраивать с помощью уже известного стека EFK:
+ElasticSearch - база данных + поисковый движок
+Fluentd - шипер (отправитель) и агрегатор логов
+Kibana - веб-интерфейс для запросов в хранилище и отображения их результатов
+
+### EFK
+Создайте файлы в новой папке *kubernetes/efk/*
+```
+fluentd-ds.yaml
+fluentd-configmap.yaml
+es-service.yaml
+es-statefulSet.yaml
+es-pvc.yaml
+```
+
+* Запустим стек в вашем k8s
+```
+$ kubectl apply -f ./efk
+persistentvolumeclaim/elasticsearch-logging-claim created
+service/elasticsearch-logging created
+statefulset.apps/elasticsearch-logging created
+configmap/fluentd-es-config-v0.1.1 created
+daemonset.apps/fluentd-es-v2.0.2 created
+```
+
+* Kibana поставим из helm чарта
+```
+$ helm upgrade --install kibana stable/kibana \
+> --set "ingress.enabled=true" \
+> --set "ingress.hosts={reddit-kibana}" \
+> --set "env.ELASTICSEARCH_URL=http://elasticsearch-logging:9200" \
+> --version 0.1.1
+Release "kibana" does not exist. Installing it now.
+NAME:   kibana
+LAST DEPLOYED: Wed Jan 15 14:57:01 2020
+NAMESPACE: default
+STATUS: DEPLOYED
+
+RESOURCES:
+==> v1/Pod(related)
+NAME                     AGE
+kibana-65f8986c64-bzw9t  1s
+
+==> v1/Service
+NAME    AGE
+kibana  1s
+
+==> v1beta1/Deployment
+NAME    AGE
+kibana  1s
+
+==> v1beta1/Ingress
+NAME    AGE
+kibana  1s
+
+
+NOTES:
+To verify that oauth-proxy has started, run:
+
+  kubectl --namespace=default get pods -l "app=kibana"
+```
+
+Проверим
+```
+$ kubectl --namespace=default get pods -l "app=kibana"
+NAME                      READY   STATUS    RESTARTS   AGE
+kibana-65f8986c64-fpkk7   1/1     Running   0          3m5s
+```
+
+* Откроем `http://reddit-kibana/`, создадим шаблон индекса
+* Откроем вкладку Discover в Kibana и введите в строку поиска выражение
+```
+kubernetes.labels.component:post OR kubernetes.labels.component:comment OR
+kubernetes.labels.component:ui
+```
+* Откроем любой из результатов поиска - в нем видно множество инфы о k8s.
+
+1. Особенность работы fluentd в k8s состоит в том, что его задача помимо сбора самих логов приложений, сервисов и хостов, также распознать дополнительные метаданные (как правило это дополнительные поля с лейблами)
+2. Откуда и какие логи собирает fluentd - видно в его `fluentdconfigmap.yaml` и в `fluentd-ds.yaml`
+
+## Задание со *
+
+* Создайте Helm-чарт для установки стека EFK и поместите в директорию charts
+* Решение в `./kubernetes/Charts/efk$`
+```
+$ helm repo add elastic https://helm.elastic.co
+$ helm install --name elasticsearch -f kubernetes/Charts/EFK/elasticsearch_custom_values.yaml elastic/elasticsearch
+$ helm install --name kibana -f kubernetes/Charts/EFK/kibana_custom_values.yaml elastic/kibana
+$ helm install --name fluend stable/fluentd
+```
 
